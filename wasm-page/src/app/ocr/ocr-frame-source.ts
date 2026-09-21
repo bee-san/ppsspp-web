@@ -52,9 +52,10 @@ export class OcrFrameSource {
     const bw = Math.max(0, cssBox.width - (canvas.offsetWidth - canvas.clientWidth));
     const bh = Math.max(0, cssBox.height - (canvas.offsetHeight - canvas.clientHeight));
     const box: CssRect = { left: cssBox.left + bl, top: cssBox.top + bt, width: bw || cssBox.width, height: bh || cssBox.height };
-    // The shell uses object-fit: contain in fullscreen; otherwise the canvas is
-    // sized with aspect-ratio 16/9 and the backing store follows (SDL resize).
-    const fit = this.bridge.isFullscreen() ? 'contain' : contentFit(canvas, box);
+    // Letterboxing inside the CSS box happens only via object-fit (the shell sets
+    // `object-fit: contain` in fullscreen); without it a canvas is always stretched to
+    // its box, whatever the backing aspect. Read the truth from computed style.
+    const fit = contentFit(canvas, box);
     const contentRect = contentRectFor(box, canvas.width, canvas.height, fit);
     const sig = `${Math.round(contentRect.left)},${Math.round(contentRect.top)},${Math.round(contentRect.width)},${Math.round(contentRect.height)}`;
     if (!this.lastGeom || this.lastGeom.w !== canvas.width || this.lastGeom.h !== canvas.height || this.lastGeom.rect !== sig) {
@@ -176,7 +177,8 @@ function isBlank(data: Uint8ClampedArray): boolean {
  */
 function contentFit(canvas: HTMLCanvasElement, box: CssRect): 'contain' | 'fill' {
   if (box.width <= 0 || box.height <= 0 || canvas.width <= 0 || canvas.height <= 0) return 'fill';
-  const a = box.width / box.height;
-  const b = canvas.width / canvas.height;
-  return Math.abs(a - b) / b > 0.02 ? 'contain' : 'fill';
+  const fit = typeof getComputedStyle === 'function' ? getComputedStyle(canvas).objectFit : '';
+  // `scale-down` behaves like contain here (the backing store is never smaller than the box
+  // by more than rounding); `cover`/`none` are not used by the shell.
+  return fit === 'contain' || fit === 'scale-down' ? 'contain' : 'fill';
 }

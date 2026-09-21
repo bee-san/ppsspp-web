@@ -50,3 +50,7 @@ jobs:
         run: |
           cd wasm-page
           node scripts/e2e-mining.mjs
+      - name: Overlay alignment E2E (real emulator + Japanese-text homebrew, DOM glyphs vs known ink boxes across resize/fullscreen/DPR/scroll/scene change)
+        run: |
+          cd wasm-page
+          node scripts/e2e-game-alignment.mjs

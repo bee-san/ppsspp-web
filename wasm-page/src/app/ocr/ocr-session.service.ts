@@ -45,6 +45,9 @@ export class OcrSessionService {
   private clientRequest: { profile: string; backend: string; threads: number } | null = null;
   private unsubscribeLifecycle: (() => void) | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  private mutationObserver: MutationObserver | null = null;
+  private geometryTimer: number | null = null;
+  private lastGeometrySig = '';
   private listeners: Array<() => void> = [];
   private lastPointer: { clientX: number; clientY: number } | null = null;
   private lastWarnings: readonly string[] = [];
@@ -143,7 +146,19 @@ export class OcrSessionService {
     if (canvas && typeof ResizeObserver !== 'undefined') {
       this.resizeObserver = new ResizeObserver(() => this.syncGeometry());
       this.resizeObserver.observe(canvas);
+      this.resizeObserver.observe(stage);
+      if (this.host) this.resizeObserver.observe(this.host);
     }
+    if (canvas && typeof MutationObserver !== 'undefined') {
+      // Backing-store size changes (SDL) do not change the CSS box → no ResizeObserver event.
+      this.mutationObserver = new MutationObserver(() => this.syncGeometry());
+      this.mutationObserver.observe(canvas, { attributes: true, attributeFilter: ['width', 'height', 'style', 'class'] });
+    }
+    on(stage, 'transitionend', () => this.syncGeometry(), { passive: true });
+    // Watchdog: anything that moves the canvas without resizing it (transforms, layout
+    // shifts elsewhere on the page, panel/header animations) is caught within one tick.
+    this.geometryTimer = window.setInterval(() => this.syncGeometryIfMoved(), 250);
+    this.listeners.push(() => { if (this.geometryTimer != null) { clearInterval(this.geometryTimer); this.geometryTimer = null; } });
   }
 
   // ─────────────────────────── events ───────────────────────────
@@ -208,6 +223,9 @@ export class OcrSessionService {
 
   private onLayout(p: PublishedLayout | null): void {
     const s = this.settings();
+    // The canvas backing store can change without a CSS resize (SDL resizes it when a game
+    // starts; ResizeObserver stays silent), so re-measure right before placing text.
+    this.syncGeometry();
     if (s.presentation === 'source-aligned') this.textLayer?.setLayout(p);
     else this.textLayer?.setLayout(null);
     // Any change of the published source (cleared OR replaced) labels a pinned card as outdated.
@@ -235,8 +253,17 @@ export class OcrSessionService {
     if (!this.frames || !this.host || !this.textLayer) return;
     const vp = this.frames.getViewport();
     const hr = this.host.getBoundingClientRect();
+    this.lastGeometrySig = geometrySig(vp, hr);
     this.textLayer.setGeometry(vp, { left: hr.left, top: hr.top, width: hr.width, height: hr.height });
     this.controller?.geometryChanged(vp?.sourceWidth, vp?.sourceHeight);
+  }
+
+  /** Cheap periodic check (two rect reads); only re-lays out when something actually moved. */
+  private syncGeometryIfMoved(): void {
+    if (!this.frames || !this.host || !this.textLayer || !this.settings().enabled) return;
+    const vp = this.frames.getViewport();
+    const hr = this.host.getBoundingClientRect();
+    if (geometrySig(vp, hr) !== this.lastGeometrySig) this.syncGeometry();
   }
 
   private refreshVisibility(): void {
@@ -451,6 +478,8 @@ export class OcrSessionService {
   dispose(): void {
     this.unsubscribeLifecycle?.();
     this.resizeObserver?.disconnect();
+    this.mutationObserver?.disconnect();
+    this.mutationObserver = null;
     for (const off of this.listeners) off();
     this.listeners = [];
     this.controller?.stop();
@@ -469,4 +498,10 @@ function confidenceNote(published: PublishedLayout, hit: TextHit): string | unde
   if (!line || line.glyphs.length === 0) return undefined;
   const avg = line.glyphs.reduce((a, g) => a + g.confidence, 0) / line.glyphs.length;
   return avg < 0.5 ? 'low confidence' : undefined;
+}
+
+function geometrySig(vp: { sourceWidth: number; sourceHeight: number; contentRect: { left: number; top: number; width: number; height: number } } | null, hr: DOMRect): string {
+  const c = vp?.contentRect;
+  const r = (n: number) => Math.round(n * 4) / 4;
+  return `${vp?.sourceWidth ?? 0}x${vp?.sourceHeight ?? 0}|${c ? `${r(c.left)},${r(c.top)},${r(c.width)},${r(c.height)}` : '-'}|${r(hr.left)},${r(hr.top)},${r(hr.width)},${r(hr.height)}`;
 }
