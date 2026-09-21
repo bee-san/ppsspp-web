@@ -104,6 +104,8 @@ export class OcrTextLayer {
     this.published = published;
 
     if (published) {
+      const hooked = new Set(published.hookedLineIds ?? []);
+      this.root.classList.toggle('ocr-hooked', hooked.size > 0);
       const lineById = new Map<string, OcrLine>(published.snapshot.lines.map((l) => [l.id, l]));
       for (const p of published.layout.paragraphs) {
         const pEl = document.createElement('div');
@@ -111,6 +113,8 @@ export class OcrTextLayer {
         pEl.dataset['ocrParagraph'] = p.id;
         if (this.options.strategy === 'glyph-spans') this.buildGlyphSpans(p, pEl, placed, glyphEls);
         else this.buildLineText(p, pEl, lineById, placed, glyphEls);
+        // Mark text that came from a text hook rather than the recognizer (diagnostics/tests).
+        if (hooked.size) for (const el of Array.from(pEl.querySelectorAll<HTMLElement>('.ocr-text-target'))) if (hooked.has(el.dataset['ocrLine'] ?? '')) el.dataset['ocrSource'] = 'hook';
         paragraphEls.set(p.id, pEl);
         next.appendChild(pEl);
       }

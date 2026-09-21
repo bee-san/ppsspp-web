@@ -3,6 +3,22 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
+/* ── Capture the emulator's WebAssembly.Memory (shared, pthreads build) ───────
+ * Must run before PPSSPPSDL.js is loaded. Used by the reading bridge's guestMemory API
+ * (text-hook scripts read the emulated PSP RAM). Only the shared memory is kept. */
+(() => {
+  const OriginalMemory = WebAssembly.Memory;
+  if (!OriginalMemory || OriginalMemory.__ppssppWrapped) return;
+  const Wrapped = function (descriptor) {
+    const mem = new OriginalMemory(descriptor);
+    if (descriptor && descriptor.shared) window.__ppssppWasmMemory = mem;
+    return mem;
+  };
+  Wrapped.prototype = OriginalMemory.prototype;
+  Wrapped.__ppssppWrapped = true;
+  WebAssembly.Memory = Wrapped;
+})();
+
 /* ── Constants ──────────────────────────────────────────────────── */
 let BUILD_DIR          = "build-wasm/";
 const BUILD_STAMP      = String(Date.now());
@@ -429,9 +445,60 @@ const ReadingBridge = (() => {
     for (const fn of audioTapListeners) { try { fn(chunk); } catch (err) { console.warn("[ReadingBridge] audio tap failed", err); } }
   };
 
+  // ── Guest (PSP) memory access for text-hook scripts ─────────────────────────
+  // The emulator is a pthreads build: its linear memory is one shared WebAssembly.Memory
+  // created on the main thread (captured below by wrapping the constructor before
+  // PPSSPPSDL.js loads). PPSSPP keeps the emulated address space in one contiguous arena
+  // inside it, so guest address A lives at host offset base + A (scratchpad 0x00010000,
+  // VRAM 0x04000000, kernel RAM 0x08000000, user RAM 0x08800000). `base` is found by
+  // scanning for the HLE syscall stubs PPSSPP writes at guest 0x08000000 when a game
+  // boots: words [x, jr $ra, syscall, break, jr $ra, syscall, jr $ra, syscall].
+  const GUEST_KERNEL = 0x08000000, GUEST_VRAM = 0x04000000, GUEST_USER = 0x08800000, GUEST_END = 0x0a000000;
+  let guestBase = -1, guestBaseSession = -1;
+  const isStubWords = (u32, i) => u32[i + 1] === 0x03e00008 && (u32[i + 2] & 0x3f) === 0x0c && u32[i + 3] === 0x0000000d && u32[i + 4] === 0x03e00008 && (u32[i + 5] & 0x3f) === 0x0c && u32[i + 6] === 0x03e00008 && (u32[i + 7] & 0x3f) === 0x0c;
+  function locateGuestBase(force) {
+    const mem = window.__ppssppWasmMemory;
+    if (!mem) return -1;
+    if (!force && guestBase >= 0 && guestBaseSession === state.gameSessionId) return guestBase;
+    const buf = mem.buffer;
+    const u32 = new Uint32Array(buf, 0, buf.byteLength >>> 2);
+    const cands = [];
+    // Kernel RAM start is page aligned in the arena → step 1024 words (4 KiB).
+    for (let i = 0; i + 8 < u32.length && cands.length < 4; i += 1024) if (u32[i] !== 0 && isStubWords(u32, i)) cands.push(i * 4);
+    for (const host of cands) {
+      const base = host - GUEST_KERNEL;
+      if (base < 0 || base + GUEST_END > buf.byteLength) continue;
+      guestBase = base; guestBaseSession = state.gameSessionId;
+      log("Guest memory arena located at host offset 0x" + base.toString(16), "info");
+      return base;
+    }
+    return -1;
+  }
+  const guestMemory = Object.freeze({
+    /** True when the emulator's shared memory has been captured (before the base is known). */
+    available: () => !!window.__ppssppWasmMemory,
+    /** Host offset of guest address 0, or -1 until a game has booted. Cached per game session. */
+    base: (force) => locateGuestBase(!!force),
+    /** The SharedArrayBuffer of the emulator; may be posted to a Worker. */
+    buffer: () => window.__ppssppWasmMemory ? window.__ppssppWasmMemory.buffer : null,
+    /** Copy `length` bytes at guest address `addr` (RAM/VRAM/scratchpad), or null when unmapped. */
+    read(addr, length) {
+      const base = locateGuestBase(false);
+      const mem = window.__ppssppWasmMemory;
+      if (base < 0 || !mem) return null;
+      addr = addr >>> 0;
+      if (addr >= GUEST_END || addr + length > GUEST_END) return null;
+      return new Uint8Array(mem.buffer, base + addr, length).slice();
+    },
+    readU32(addr) { const b = this.read(addr, 4); return b ? (b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24)) >>> 0 : null; },
+    layout: Object.freeze({ scratchpad: 0x00010000, vram: GUEST_VRAM, kernel: GUEST_KERNEL, user: GUEST_USER, end: GUEST_END }),
+  });
+
   const api = Object.freeze({
-    version: 2,
+    version: 3,
     getState: () => ({ ...state }),
+    /** v3: guest (PSP) memory for text-hook scripts; see guestMemory above. */
+    guestMemory,
     getCanvas: () => canvas,
     getStage: () => stageEl,
     subscribeLifecycle(cb) { listeners.add(cb); return () => listeners.delete(cb); },

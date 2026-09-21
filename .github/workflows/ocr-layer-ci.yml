@@ -54,6 +54,10 @@ jobs:
         run: |
           cd wasm-page
           node scripts/e2e-mining-game.mjs
+      - name: Text hook E2E (Agent script in a Worker over the emulator's shared memory → lines on page flip; OCR correction; mining timing + Sentence field)
+        run: |
+          cd wasm-page
+          node scripts/e2e-agent.mjs
       - name: Overlay alignment E2E (real emulator + Japanese-text homebrew, DOM glyphs vs known ink boxes across resize/fullscreen/DPR/scroll/scene change)
         run: |
           cd wasm-page

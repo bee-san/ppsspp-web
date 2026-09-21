@@ -53,6 +53,16 @@ static int audio_thread(SceSize args, void *argp) {
   return 0;
 }
 
+/* Current dialogue line, Shift-JIS, NUL-terminated — what a text hook reads. Kept in .data
+ * (not .bss) and volatile so it is a stable, non-optimised memory location. */
+volatile unsigned char g_line[LINE_BYTES] = "init";
+volatile unsigned int g_line_serial = 0;
+static void show_page(int page) {
+  const unsigned char *src = LINES[page];
+  for (int i = 0; i < LINE_BYTES; i++) g_line[i] = src[i];
+  g_line_serial++;
+}
+
 static int exit_callback(int arg1, int arg2, void *common) { sceKernelExitGame(); return 0; }
 static int callback_thread(SceSize args, void *argp) {
   int cb = sceKernelCreateCallback("Exit Callback", exit_callback, NULL);
@@ -74,10 +84,11 @@ int main(void) {
   sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
   int page = 0;
   unsigned int prev = 0;
+  show_page(page);
   for (;;) {
     SceCtrlData pad;
     sceCtrlReadBufferPositive(&pad, 1);
-    if ((pad.Buttons & PSP_CTRL_CROSS) && !(prev & PSP_CTRL_CROSS)) page = (page + 1) % PAGE_COUNT;
+    if ((pad.Buttons & PSP_CTRL_CROSS) && !(prev & PSP_CTRL_CROSS)) { page = (page + 1) % PAGE_COUNT; show_page(page); }
     prev = pad.Buttons;
     const unsigned short *src = PAGES[page];
     for (int y = 0; y < SCR_H; y++) memcpy(vram + y * BUF_W, src + y * SCR_W, SCR_W * 2);

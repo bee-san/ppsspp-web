@@ -50,6 +50,12 @@ export interface ControllerPorts {
   capture(region: NormRegion): Promise<CapturedGameFrame | null>;
   ocr(frame: CapturedGameFrame): Promise<OcrSnapshot>;
   buildLayout(snapshot: OcrSnapshot): LayoutSnapshot;
+  /**
+   * Optional post-processing of the recognizer's output before layout (e.g. replacing line
+   * text with a text hook's exact string). Returns the snapshot to publish plus the ids of
+   * lines it changed. Re-run on the cached raw snapshot via `reprocess()`.
+   */
+  postProcess?(snapshot: OcrSnapshot): { snapshot: OcrSnapshot; hookedLineIds: readonly string[] };
   hitTest(layout: LayoutSnapshot, imagePt: { x: number; y: number }): TextHit | null;
   /** Source framebuffer size, needed to map normalized pointer → image pixels. */
   sourceSize(): { width: number; height: number };
@@ -394,6 +400,25 @@ export class OcrScanController {
     return this.hotkeyDown || (this.settings.autoScan && this.settings.lookupsWithoutHotkey);
   }
 
+  /**
+   * Re-run `postProcess` on the cached raw snapshot (a text hook delivered its line after
+   * the frame was recognized) and republish without a new inference. No-op when nothing
+   * is published or the text is unchanged.
+   */
+  reprocess(): boolean {
+    const pub = this.published;
+    if (!pub || !this.ports.postProcess) return false;
+    const raw = pub.rawSnapshot ?? pub.snapshot;
+    const post = this.ports.postProcess(raw);
+    const sameIds = (post.hookedLineIds ?? []).join('|') === (pub.hookedLineIds ?? []).join('|');
+    if (sameIds && post.snapshot.lines.every((l, i) => l.text === pub.snapshot.lines[i]?.text)) return false;
+    const layout = this.ports.buildLayout(post.snapshot);
+    this.published = { ...pub, layout, snapshot: post.snapshot, rawSnapshot: raw, hookedLineIds: post.hookedLineIds };
+    this.ports.onLayout(this.published);
+    this.rehit();
+    return true;
+  }
+
   getPublished(): PublishedLayout | null {
     return this.published;
   }
@@ -537,8 +562,9 @@ export class OcrScanController {
       this.consecutiveFailures = 0;
       // Only successful inference marks the crop as "seen" (failures stay retryable).
       this.lastCompared = { key, bytes: kept, width: captured.frame.width, height: captured.frame.height, snapshotGeneration: generation };
-      const layout = this.ports.buildLayout(snapshot);
-      this.published = { layout, snapshot, meta: captured.meta, generation, publishedAtMs: this.sched.now() };
+      const post = this.ports.postProcess?.(snapshot) ?? { snapshot, hookedLineIds: [] };
+      const layout = this.ports.buildLayout(post.snapshot);
+      this.published = { layout, snapshot: post.snapshot, rawSnapshot: snapshot, hookedLineIds: post.hookedLineIds, meta: captured.meta, generation, publishedAtMs: this.sched.now() };
       this.diag.cachedLayout = true;
       this.ports.onLayout(this.published);
       // Hit-test the *current* pointer, not the one captured when inference began.

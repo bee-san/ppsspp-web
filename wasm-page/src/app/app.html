@@ -186,6 +186,7 @@
           <option value="storage">OPFS Storage</option>
           <option value="ocr">OCR</option>
           <option value="mining">Mining</option>
+          <option value="hook">Text hook</option>
           <option value="keys">Keys</option>
           <option value="info">System</option>
           <option value="log">Console</option>
@@ -201,6 +202,7 @@
         <div class="tab"        data-tab="storage"><i data-lucide="hard-drive"></i> OPFS</div>
         <div class="tab"        data-tab="ocr"><i data-lucide="eye"></i> OCR</div>
         <div class="tab"        data-tab="mining"><i data-lucide="scissors"></i> Mining</div>
+        <div class="tab"        data-tab="hook"><i data-lucide="braces"></i> Text hook</div>
         <div class="tab"        data-tab="keys"><i data-lucide="keyboard"></i> Keys</div>
         <div class="tab"        data-tab="info"><i data-lucide="settings"></i> System</div>
         <div class="tab"        data-tab="log"><i data-lucide="terminal"></i> Console</div>
@@ -215,6 +217,9 @@
         <app-mining-settings></app-mining-settings>
       </div>
 
+      <div class="tab-panel" id="tabHook">
+        <app-agent-settings></app-agent-settings>
+      </div>
       <div class="tab-panel" id="tabKeys">
         <app-keys-help></app-keys-help>
       </div>
