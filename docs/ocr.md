@@ -50,6 +50,36 @@ wasm-page/scripts/export-ocr-assets.mjs   fetch+verify models, copy matching ORT
 
 There is no 150 ms "hold still" delay.
 
+### Conformance review against MeikiPop `ed1b70c` (2026-09-21)
+
+Re-derived from `gui/input.py`, `screenshot/screenmanager.py`, `ocr/ocr.py`,
+`ocr/hit_scan.py`, `ocr/providers/meikiocr/provider.py`, `gui/popup.py`:
+
+| MeikiPop | Fork | Match |
+|---|---|---|
+| Manual mode: screenshot on hotkey rising edge, no interval, no movement gate | `hotkeyDownEdge` → `requestScan('manual')` only when `!autoScan`; throttle only in auto | ✓ |
+| Auto mode: one initial screenshot when auto mode starts | `maybeEnterAutoMode` | ✓ |
+| Auto interval measured from the last OCR *submission*; too early → sleep remainder → re-trigger | `lastSubmitAt`, trailing throttle timer | ✓ |
+| Movement mode: skip when the pointer has not moved since the last screenshot | `pointerMovedSinceLastScan` | ✓ |
+| Identical screenshot → skip OCR, sleep 0.1 s, re-trigger (auto) / hit-scan (manual) | unchanged skip + 100 ms back-off + `rehit()` | ✓ |
+| After every OCR (auto mode) re-set the screenshot trigger | `afterScan` services the pending intent / periodic | ✓ |
+| OCR failure leaves the previous result in place | published layout untouched on failure | ✓ |
+| Hit scan on every movement against the newest OCR result; runs against the *current* pointer after OCR | `rehit()` | ✓ |
+| Popup shown iff lookup result AND (hotkey held OR auto ∧ lookups-without-hotkey) AND enabled | `activationAllowed()` | ✓ |
+| Provider: RGB, det 0.5, rec 0.1, punct 0.2, Japanese filter, `w*1.5 < h` vertical, furigana/grouping | `meikipop-v2` profile + `meikiocr-web/meikipop` (parity-tested) | ✓ |
+| Whole paragraph as lookup string (extension does the dictionary work) | full paragraph text + offset; DOM paragraph is one continuous text run for Yomitan (see below) | ✓ |
+| Screenshot at raw screen resolution | capture at source resolution up to the 4 MP library guard (was 1 MP downsample; changed recognitions) | ✓ (fixed) |
+| Region selection at startup | full viewport default + "Select text area" | adaptation |
+
+**DOM representation finding.** Yomitan's `DOMTextScanner` treats every
+`position:absolute` element as a paragraph break (two newlines). The previous
+absolutely positioned line/glyph spans therefore split a paragraph at each
+visual wrap. Spans are now `inline-block` with zero flow advance, placed by
+`transform` inside one absolutely positioned paragraph container; the pinned
+Yomitan scanner (vendored under `scripts/yomitan-scanner/`, test-only) reads
+each paragraph as one continuous run, and caret hit-testing resolves to the
+right glyph. Verified in the emulator E2E on live emulator text.
+
 ## Capture
 
 `OcrFrameSource` copies the WebGL canvas inside `requestAnimationFrame`, which

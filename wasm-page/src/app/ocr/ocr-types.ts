@@ -99,7 +99,9 @@ export const DEFAULT_OCR_SETTINGS: Readonly<OcrSettings> = Object.freeze({
   wasmThreads: 1,
   pauseGameDuringLookup: false,
   stalePolicy: 'mark',
-  maxCapturePixels: 1_048_576, // 1 MP; PSP renders are 480x272 natively
+  // MeikiPop OCRs the raw screen pixels; do not downsample unless the render target exceeds the
+  // library's 4 MP input guard (e.g. 4K). Downsampling changed recognitions in testing.
+  maxCapturePixels: 4_000_000,
   showDiagnostics: false,
   fontScale: 1,
 });

@@ -50,7 +50,7 @@ const server = createServer((req, res) => {
     if (path !== PREFIX && !path.startsWith(PREFIX + "/")) { res.writeHead(404).end("outside prefix: " + path); return; }
     path = path.slice(PREFIX.length) || "/";
   }
-  let file = join(root, path);
+  let file = path.startsWith("/scripts/") ? join(resolve("scripts"), path.slice("/scripts/".length)) : join(root, path);
   if (!existsSync(file) || statSync(file).isDirectory()) file = join(root, "index.html");
   res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream", "cross-origin-opener-policy": "same-origin", "cross-origin-embedder-policy": "require-corp", "cache-control": "no-store" });
   createReadStream(file).pipe(res);
@@ -156,6 +156,35 @@ const retries = Number(/blankRetries=(\d+)/.exec(result.diag ?? "")?.[1] ?? 0);
 check(/paragraphs=[1-9]/.test(result.diag ?? "") && blanks * 2 <= captures, `diagnostics: paragraphs>0; blank captures ${blanks}/${captures} (retried ${retries})`);
 console.log(`DOM text targets (${result.targets.length}):`);
 for (const t of result.targets.slice(0, 30)) console.log(`  "${t.text}" @ (${t.left}, ${t.top}) ${t.w}×${t.h}`);
+// Extension-facing text: Yomitan's real DOMTextScanner (pinned commit, vendored under scripts/yomitan-scanner/)
+// must read each paragraph as ONE continuous run (no injected newlines at visual line wraps),
+// and native caret hit-testing at a glyph's centre must resolve to that glyph.
+{
+  const yomi = await page.evaluate(async () => {
+    const mod = await import("/scripts/yomitan-scanner/dom-text-scanner.js");
+    const out = [];
+    for (const p of document.querySelectorAll(".ocr-paragraph")) {
+      const spans = [...p.querySelectorAll(".ocr-text-target")];
+      if (!spans.length) continue;
+      const expected = spans.map((s) => s.textContent).join("");
+      const content = new mod.DOMTextScanner(spans[0].firstChild, 0, false, true).seek(expected.length).content;
+      // geometry: transformed span rect vs. its intended CSS box
+      const r = spans[0].getBoundingClientRect();
+      const host = document.getElementById("ocrOverlay").getBoundingClientRect();
+      const m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(spans[0].style.transform);
+      const dx = Math.abs(r.left - host.left - parseFloat(m[1]));
+      const dy = Math.abs(r.top - host.top - parseFloat(m[2]));
+      out.push({ expected, content, dx, dy });
+    }
+    return out;
+  });
+  const bad = yomi.filter((y) => y.content !== y.expected);
+  check(yomi.length > 0 && bad.length === 0, `Yomitan DOMTextScanner reads ${yomi.length} paragraphs as continuous text${bad.length ? " — mismatches: " + JSON.stringify(bad.slice(0, 3)) : ""}`);
+  const misplaced = yomi.filter((y) => y.dx > 1 || y.dy > 1);
+  check(misplaced.length === 0, `spans placed where intended (max offset ${Math.max(...yomi.map((y) => Math.max(y.dx, y.dy))).toFixed(2)} px)`);
+  const multi = yomi.find((y) => y.expected.length >= 6);
+  if (multi) console.log(`  sample paragraph as seen by Yomitan: ${JSON.stringify(multi.content)}`);
+}
 // Hover the first target and check the popup/active glyph highlight follows
 if (result.targets.length) {
   const el = page.locator(".ocr-text-target").first();
