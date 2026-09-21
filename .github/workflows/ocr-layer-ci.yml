@@ -37,6 +37,11 @@ jobs:
           npm i --no-save playwright@1.63.0
           npx playwright install --with-deps chromium
           node scripts/smoke-ocr.mjs
+      - name: Ground-truth fake-frame harness (known text → recognition, per-character hits, region, modes, popup)
+        run: |
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk >/dev/null 2>&1 || true
+          cd wasm-page
+          node scripts/e2e-fake-frame.mjs
       - name: Emulator E2E (real PPSSPP WASM, Japanese menu, OCR → DOM text)
         run: |
           cd wasm-page
