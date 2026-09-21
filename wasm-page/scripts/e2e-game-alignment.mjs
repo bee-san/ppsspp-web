@@ -24,7 +24,8 @@
  *
  * Usage: npx ng build --configuration development && node scripts/e2e-game-alignment.mjs
  * Env:   ALIGN_JSON=/path/out.json  writes all raw measurements;
- *        E2E_PATH_PREFIX=/ppsspp-web serves dist under a sub-path like GitHub Pages.
+ *        E2E_PATH_PREFIX=/ppsspp-web serves dist under a sub-path like GitHub Pages;
+ *        ALIGN_URL=https://bee-san.github.io/ppsspp-web/ measures a deployed site instead.
  */
 import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -67,6 +68,9 @@ const server = createServer((req, res) => {
 });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const port = server.address().port;
+// ALIGN_URL=https://…/ppsspp-web/ runs the same measurements against a deployed site
+// (GitHub Pages gets cross-origin isolation from its service worker, hence the reload loop).
+const BASE_URL = process.env.ALIGN_URL ?? `http://127.0.0.1:${port}${PREFIX}/`;
 
 let failures = 0;
 const check = (ok, msg) => { console.log(`${ok ? "PASS" : "FAIL"} ${msg}`); if (!ok) failures++; };
@@ -234,8 +238,14 @@ async function bootAndEnable(context, viewport) {
   await page.setViewportSize(viewport);
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto(`http://127.0.0.1:${port}${PREFIX}/`);
-  await page.waitForFunction(() => !!window.PpssppReadingBridge && window.crossOriginIsolated, null, { timeout: 30_000 });
+  await page.goto(BASE_URL);
+  await page.waitForFunction(() => !!window.PpssppReadingBridge, null, { timeout: 60_000 });
+  for (let i = 0; i < 3 && !(await page.evaluate(() => window.crossOriginIsolated)); i++) {
+    await page.waitForTimeout(2000);
+    await page.reload();
+    await page.waitForFunction(() => !!window.PpssppReadingBridge, null, { timeout: 60_000 });
+  }
+  if (!(await page.evaluate(() => window.crossOriginIsolated))) throw new Error("page is not cross-origin isolated");
   await page.evaluate(() => localStorage.setItem("ppsspp_ocr_debug", "1"));
   await page.setInputFiles("#gameFile", resolve("test-game/EBOOT.PBP"));
   await page.click("#startBtn");
