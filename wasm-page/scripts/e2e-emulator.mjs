@@ -46,11 +46,19 @@ const PREFIX = (process.env.E2E_PATH_PREFIX ?? "").replace(/\/$/, "");
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm", ".json": "application/json", ".css": "text/css", ".data": "application/octet-stream" };
 const server = createServer((req, res) => {
   let path = decodeURIComponent(new URL(req.url, "http://x").pathname);
+  if (path.startsWith("/scripts/")) {
+    // test-only helpers (vendored Yomitan scanner), served outside the site prefix
+    const f = join(resolve("scripts"), path.slice("/scripts/".length));
+    if (!existsSync(f) || statSync(f).isDirectory()) { res.writeHead(404).end("not found"); return; }
+    res.writeHead(200, { "content-type": "text/javascript", "cross-origin-opener-policy": "same-origin", "cross-origin-embedder-policy": "require-corp" });
+    createReadStream(f).pipe(res);
+    return;
+  }
   if (PREFIX) {
     if (path !== PREFIX && !path.startsWith(PREFIX + "/")) { res.writeHead(404).end("outside prefix: " + path); return; }
     path = path.slice(PREFIX.length) || "/";
   }
-  let file = path.startsWith("/scripts/") ? join(resolve("scripts"), path.slice("/scripts/".length)) : join(root, path);
+  let file = join(root, path);
   if (!existsSync(file) || statSync(file).isDirectory()) file = join(root, "index.html");
   res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream", "cross-origin-opener-policy": "same-origin", "cross-origin-embedder-policy": "require-corp", "cache-control": "no-store" });
   createReadStream(file).pipe(res);
