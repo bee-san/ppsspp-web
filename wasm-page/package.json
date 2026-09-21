@@ -20,7 +20,7 @@
     "@angular/core": "21.2.14",
     "@angular/platform-browser": "21.2.14",
     "lucide": "1.16.0",
-    "meikiocr-web": "git+https://github.com/bee-san/meikiocr-web.git#3b9e167f9b45159c8e3c03bb0b7c49ff0d9f148f",
+    "meikiocr-web": "git+https://github.com/bee-san/meikiocr-web.git#0431493cfc59534bdf9e48be95a9e43c21a206be",
     "tslib": "^2.8.1"
   },
   "devDependencies": {

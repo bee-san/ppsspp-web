@@ -180,6 +180,11 @@ export class OcrScanController {
     if (hard) this.invalidate('settings');
     const modeChanged = prev.autoScan !== next.autoScan || prev.scanOnMouseMove !== next.scanOnMouseMove || prev.scanIntervalMs !== next.scanIntervalMs;
     if (modeChanged) {
+      // Intents and timers belong to the mode that created them: a movement/periodic
+      // intent or trailing throttle from auto mode must not fire in manual mode
+      // (MeikiPop's manual path has no interval and no movement trigger), and vice versa.
+      this.pendingIntent = null;
+      this.clearTimer('throttle');
       this.autoModeEntered = false;
       this.reschedulePeriodic();
       this.maybeEnterAutoMode();

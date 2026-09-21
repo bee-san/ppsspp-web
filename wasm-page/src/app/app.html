@@ -26,7 +26,7 @@
 
     <div class="hbar-group" id="displayGroup">
       <button id="fullscreenBtn" class="icon-btn" title="Fullscreen"><i data-lucide="maximize"></i></button>
-      <button id="ocrToggleBtn" type="button" class="ocr-btn" [class.active]="ocr.settings().enabled" [attr.aria-pressed]="ocr.settings().enabled" title="OCR text: read game text with your dictionary extension (runs locally)" (click)="ocr.toggleEnabled()"><i data-lucide="eye"></i><span class="btn-lbl"> OCR text</span></button>
+      <button id="ocrToggleBtn" type="button" class="ocr-btn" [class.active]="ocr.settings().enabled" [attr.aria-pressed]="ocr.settings().enabled" title="OCR: read game text with your dictionary extension (runs locally)" (click)="ocr.toggleEnabled()"><i data-lucide="eye"></i><span class="btn-lbl"> OCR</span></button>
       <select id="gamepadSelect" class="btn" title="Active controller">
         <option value="-1">All controllers</option>
       </select>
@@ -64,19 +64,91 @@
             <div class="idle-kicker">Ready to play</div>
             <h1 class="idle-title">Your PSP is waiting.</h1>
             <p class="idle-subtitle" id="idleSubtitle">Open a PSP game file or pick one from the library to start PPSSPP in the browser.</p>
+            <p class="idle-subtitle idle-ocr-hint">Click <strong>OCR</strong> to look up the text. Use <a href="https://github.com/bee-san/hachidori" target="_blank" rel="noopener">Hachidori</a> for an amazing dictionary.</p>
             <div class="idle-actions">
               <button id="idleStartBtn" class="primary" type="button"><i data-lucide="play"></i><span> Start PPSSPP</span></button>
               <label class="btn" for="gameFile"><i data-lucide="folder-open"></i><span> Open Game</span></label>
-              <a class="btn idle-repo-link" href="https://github.com/root-hunter/ppsspp-web" target="_blank" rel="noopener" title="Open PPSSPP Web repository">
+              <a class="btn idle-repo-link" href="https://github.com/bee-san/ppsspp-web" target="_blank" rel="noopener" title="Open the PPSSPP Web + OCR repository">
                 <i data-lucide="git-fork"></i><span> GitHub Repo</span>
               </a>
             </div>
           </div>
           <div class="idle-psp" aria-hidden="true">
-            <div class="idle-psp-screen"></div>
-            <div class="idle-psp-dpad"></div>
-            <div class="idle-psp-buttons"></div>
-            <div class="idle-psp-stick"></div>
+            <!-- PSP-1000 front view, drawn by hand for this project (no third-party artwork) -->
+            <svg class="idle-psp-svg" viewBox="0 0 640 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="PlayStation Portable">
+              <defs>
+                <linearGradient id="pspBody" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#232d36"/><stop offset=".55" stop-color="#0d1217"/><stop offset="1" stop-color="#1a2229"/>
+                </linearGradient>
+                <linearGradient id="pspBezel" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#05080b"/><stop offset="1" stop-color="#0b1015"/>
+                </linearGradient>
+                <linearGradient id="pspScreen" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#0b3a34"/><stop offset=".5" stop-color="#062a2b"/><stop offset="1" stop-color="#0a2340"/>
+                </linearGradient>
+                <radialGradient id="pspGlow" cx=".5" cy=".55" r=".6">
+                  <stop offset="0" stop-color="#00d4aa" stop-opacity=".55"/><stop offset="1" stop-color="#00d4aa" stop-opacity="0"/>
+                </radialGradient>
+                <linearGradient id="pspGloss" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#fff" stop-opacity=".16"/><stop offset=".4" stop-color="#fff" stop-opacity="0"/>
+                </linearGradient>
+                <radialGradient id="pspBtn" cx=".35" cy=".3" r=".8">
+                  <stop offset="0" stop-color="#3a4650"/><stop offset="1" stop-color="#151c22"/>
+                </radialGradient>
+                <filter id="pspShadow" x="-10%" y="-10%" width="120%" height="130%">
+                  <feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#000" flood-opacity=".55"/>
+                </filter>
+              </defs>
+              <!-- body -->
+              <g filter="url(#pspShadow)">
+                <path d="M78 22 H562 a56 56 0 0 1 56 56 V222 a56 56 0 0 1 -56 56 H78 a56 56 0 0 1 -56 -56 V78 a56 56 0 0 1 56 -56 Z" fill="url(#pspBody)" stroke="rgba(255,255,255,.12)"/>
+                <path d="M78 22 H562 a56 56 0 0 1 56 56 V120 H22 V78 a56 56 0 0 1 56 -56 Z" fill="url(#pspGloss)"/>
+              </g>
+              <!-- shoulder buttons -->
+              <path d="M112 22 h70 a8 8 0 0 1 8 8 v4 h-92 v-4 a8 8 0 0 1 8 -8 Z" fill="#2a343d" opacity=".9"/>
+              <path d="M458 22 h70 a8 8 0 0 1 8 8 v4 h-92 v-4 a8 8 0 0 1 8 -8 Z" fill="#2a343d" opacity=".9"/>
+              <!-- screen bezel + screen -->
+              <rect x="176" y="52" width="288" height="176" rx="10" fill="url(#pspBezel)" stroke="rgba(255,255,255,.08)"/>
+              <rect x="192" y="66" width="256" height="148" rx="4" fill="url(#pspScreen)"/>
+              <rect x="192" y="66" width="256" height="148" rx="4" fill="url(#pspGlow)"/>
+              <rect x="192" y="66" width="256" height="60" rx="4" fill="url(#pspGloss)" opacity=".5"/>
+              <!-- screen content: a gentle scanline bar -->
+              <rect class="idle-psp-bar" x="232" y="180" width="176" height="3" rx="2" fill="#00d4aa"/>
+              <!-- PSP wordmark -->
+              <text x="320" y="246" text-anchor="middle" font-family="'Segoe UI',Inter,system-ui,sans-serif" font-size="13" font-weight="700" letter-spacing="3" fill="rgba(255,255,255,.28)">PSP</text>
+              <!-- d-pad -->
+              <g fill="#1d262e" stroke="rgba(255,255,255,.10)">
+                <rect x="87" y="80" width="26" height="78" rx="7"/>
+                <rect x="61" y="106" width="78" height="26" rx="7"/>
+              </g>
+              <g fill="rgba(255,255,255,.22)">
+                <path d="M100 90 l6 9 h-12 z"/><path d="M100 148 l-6 -9 h12 z"/><path d="M71 119 l9 -6 v12 z"/><path d="M129 119 l-9 -6 v12 z"/>
+              </g>
+              <!-- analog nub -->
+              <circle cx="100" cy="196" r="17" fill="url(#pspBtn)" stroke="rgba(255,255,255,.10)"/>
+              <circle cx="100" cy="196" r="9" fill="#00d4aa" opacity=".45"/>
+              <!-- face buttons: △ ○ × □ -->
+              <g stroke="rgba(255,255,255,.10)" fill="url(#pspBtn)">
+                <circle cx="540" cy="86" r="14"/><circle cx="574" cy="120" r="14"/><circle cx="540" cy="154" r="14"/><circle cx="506" cy="120" r="14"/>
+              </g>
+              <g fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M540 78 l7 12 h-14 z" stroke="#41d67c"/>
+                <circle cx="574" cy="120" r="6" stroke="#ff6b7a"/>
+                <path d="M534 148 l12 12 M546 148 l-12 12" stroke="#7fb3ff"/>
+                <rect x="500" y="114" width="12" height="12" rx="1.5" stroke="#ffb0e0"/>
+              </g>
+              <!-- select / start -->
+              <rect x="486" y="196" width="34" height="9" rx="4.5" fill="#1d262e" stroke="rgba(255,255,255,.10)"/>
+              <rect x="528" y="196" width="34" height="9" rx="4.5" fill="#1d262e" stroke="rgba(255,255,255,.10)"/>
+              <!-- home / volume -->
+              <circle cx="212" cy="246" r="5" fill="#1d262e" stroke="rgba(255,255,255,.10)"/>
+              <rect x="236" y="243" width="22" height="6" rx="3" fill="#1d262e"/>
+              <rect x="266" y="243" width="22" height="6" rx="3" fill="#1d262e"/>
+              <!-- speaker -->
+              <g fill="rgba(255,255,255,.14)">
+                <circle cx="404" cy="246" r="2.2"/><circle cx="414" cy="246" r="2.2"/><circle cx="424" cy="246" r="2.2"/><circle cx="434" cy="246" r="2.2"/>
+              </g>
+            </svg>
           </div>
         </div>
         <a class="idle-powered" href="https://github.com/bee-san" target="_blank" rel="noopener" title="Made by bee-san">
@@ -110,7 +182,7 @@
           <option value="network">Network</option>
           <option value="drive">Google Drive</option>
           <option value="storage">OPFS Storage</option>
-          <option value="ocr">OCR Text</option>
+          <option value="ocr">OCR</option>
           <option value="info">System</option>
           <option value="log">Console</option>
           <option value="about">About</option>
@@ -309,28 +381,17 @@
           </div>
 
           <div class="info-group">
-            <h3>PPSSPP-WASM Fork</h3>
+            <h3>PPSSPP Web + OCR</h3>
             <div class="about-text">
-              The emulator core used here comes from <a href="https://github.com/root-hunter/ppsspp-wasm" target="_blank" rel="noopener">ppsspp-wasm</a>,
-              the WebAssembly-focused fork maintained by <a href="https://github.com/root-hunter" target="_blank" rel="noopener">root-hunter</a>.
-              It carries the PPSSPP browser build work that this web shell runs.
+              Made by <a href="https://github.com/bee-san" target="_blank" rel="noopener">bee-san</a>: a browser PSP emulator with a local OCR text layer
+              (<a href="https://github.com/bee-san/meikiocr-web" target="_blank" rel="noopener">meikiocr-web</a>) so game text can be read with a dictionary extension such as
+              <a href="https://github.com/bee-san/hachidori" target="_blank" rel="noopener">Hachidori</a>. Emulator core: PPSSPP's WebAssembly port (upstream ppsspp-wasm).
             </div>
             <div class="about-links">
-              <a href="https://github.com/root-hunter/ppsspp-wasm" target="_blank" rel="noopener">WASM fork repository</a>
-              <a href="https://github.com/root-hunter" target="_blank" rel="noopener">Maintainer</a>
-            </div>
-          </div>
-
-          <div class="info-group">
-            <h3>Web Shell</h3>
-            <div class="about-text">
-              PPSSPP Web packages that WASM build with a browser UI, GitHub Pages deployment, PWA shell, local browser storage helpers, and web-player workflow.
-            </div>
-            <div class="about-links">
-              <a href="https://root-hunter.github.io/ppsspp-web/" target="_blank" rel="noopener">Live web build</a>
-              <a href="https://www.ppsspp.org/legacybuilds/" target="_blank" rel="noopener">Official PPSSPP listing</a>
-              <a href="https://github.com/root-hunter/ppsspp-web" target="_blank" rel="noopener">Web repository</a>
-              <a href="https://github.com/root-hunter" target="_blank" rel="noopener">Maintainer</a>
+              <a href="https://bee-san.github.io/ppsspp-web/" target="_blank" rel="noopener">Live web build</a>
+              <a href="https://github.com/bee-san/ppsspp-web" target="_blank" rel="noopener">Repository</a>
+              <a href="https://github.com/bee-san/hachidori" target="_blank" rel="noopener">Hachidori dictionary</a>
+              <a href="https://github.com/bee-san" target="_blank" rel="noopener">bee-san on GitHub</a>
             </div>
           </div>
 

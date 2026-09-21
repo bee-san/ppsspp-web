@@ -564,4 +564,21 @@ describe('OcrScanController (MeikiPop scheduling)', () => {
     expect(ho.captures).toBe(c0);
     expect(ho.layouts.at(-1)).not.toBeNull();
   });
+
+  it('switching auto → manual drops the pending auto intent; the next Shift press captures exactly once', async () => {
+    const h = harness();
+    await ready(h);
+    move(h, 20, 15); // movement intent inside the throttle window (trailing scan armed)
+    expect(h.ctrl.getDiagnostics().pendingIntent).toBe('movement');
+    h.ctrl.setSettings({ ...DEFAULT_OCR_SETTINGS, enabled: true, autoScan: false });
+    await h.sched.advance(2000);
+    expect(h.ocrCalls).toBe(1); // the auto-mode trailing scan did not fire
+    h.setPixels(2);
+    h.ctrl.hotkeyDownEdge();
+    await flush();
+    expect(h.ocrCalls).toBe(2);
+    h.ctrl.hotkeyDownEdge(); // repeat
+    await h.sched.advance(100);
+    expect(h.ocrCalls).toBe(2);
+  });
 });

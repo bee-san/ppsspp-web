@@ -2,7 +2,7 @@
   <div class="ocr-row ocr-row-main">
     <label class="ocr-toggle">
       <input type="checkbox" [checked]="s().enabled" (change)="ocr.toggleEnabled()" />
-      <span><strong>OCR text</strong> — read game text with your dictionary extension</span>
+      <span><strong>OCR</strong> — read game text with your dictionary extension</span>
     </label>
     <button type="button" class="btn" title="Re-scan now (bypasses unchanged-image check)" (click)="ocr.refresh()" [disabled]="diag().phase !== 'ready'">Refresh</button>
   </div>
