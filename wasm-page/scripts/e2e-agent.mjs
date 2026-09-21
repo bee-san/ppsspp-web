@@ -73,6 +73,9 @@ await page.route("http://127.0.0.1:8765/**", (route) => {
   }
 });
 
+/** Hold a key for several emulator frames (a slow CI emulator misses an instant press). */
+const pressHeld = async (key, ms = 500) => { await page.keyboard.down(key); await page.waitForTimeout(ms); await page.keyboard.up(key); };
+
 await page.goto(`http://127.0.0.1:${port}${PREFIX}/`);
 await page.waitForFunction(() => !!window.PpssppReadingBridge && window.crossOriginIsolated, null, { timeout: 30_000 });
 check((await page.evaluate(() => window.PpssppReadingBridge.version)) >= 3, "reading bridge v3 (guest memory API)");
@@ -107,14 +110,14 @@ check(gline === LINE1, `bridge read of g_line (0x088a1860) → "${gline}"`);
 // The watch records the initial buffer silently; a page flip must produce the new line.
 await page.click("#canvas", { position: { x: 20, y: 20 } });
 const tFlip = await page.evaluate(() => performance.now());
-await page.keyboard.press("z");
+await pressHeld("z");
 const got2 = await page.waitForFunction((want) => (document.querySelector("app-agent-settings .agent-lines li .agent-line-text")?.textContent ?? "") === want, LINE2, { timeout: 20_000, ...POLL }).then(() => true, () => false);
 check(got2, `page flip → hooked line "${LINE2}" in the feed`);
 await page.waitForTimeout(500);
-await page.keyboard.press("z");
+await pressHeld("z");
 const got1 = await page.waitForFunction((want) => (document.querySelector("app-agent-settings .agent-lines li .agent-line-text")?.textContent ?? "") === want, LINE1, { timeout: 20_000, ...POLL }).then(() => true, () => false);
 check(got1, `second flip → "${LINE1}"`);
-await page.keyboard.press("z"); // back to page 2 for the OCR/mining part
+await pressHeld("z"); // back to page 2 for the OCR/mining part
 await page.waitForFunction((want) => (document.querySelector("app-agent-settings .agent-lines li .agent-line-text")?.textContent ?? "") === want, LINE2, { timeout: 20_000, ...POLL }).catch(() => {});
 const feedCount = await page.evaluate(() => document.querySelectorAll("app-agent-settings .agent-lines li").length);
 check(feedCount === 3, `feed holds ${feedCount} lines (3 flips)`);
@@ -132,7 +135,7 @@ check(hooked && ocrText.all.includes("どうする？"), `OCR layer shows the ho
 // ── Mining integration: clip starts at the line's timestamp − pre-roll; Sentence field set. ──
 await page.evaluate(() => { const sel = document.getElementById("panelTabSelect"); sel.value = "mining"; sel.dispatchEvent(new Event("change", { bubbles: true })); });
 await page.waitForFunction(() => /Buffered: [3-9]|Buffered: \d\d/.test(document.querySelector(".mining-buffered")?.textContent ?? ""), null, { timeout: 120_000, ...POLL });
-await page.keyboard.press("z"); // fresh line → its timestamp is "now"
+await pressHeld("z"); // fresh line → its timestamp is "now"
 await page.waitForTimeout(300);
 const flipAt = await page.evaluate(() => performance.now());
 await page.waitForTimeout(2500);
