@@ -82,6 +82,8 @@ pinned `models.lock.json` in meikiocr-web.
 ## Status / limitations (honest)
 
 - Unit-tested: scheduler state machine (18 scenarios from the plan's table), coordinate transforms, popup placement, settings store. Production build passes.
-- Not yet run against a real PPSSPP WASM build in a headed browser: capture correctness at the render boundary, extension (Yomitan/Hachidori) gate, fullscreen, input arbitration under SDL. These are release gates (plan §14 C/D/E), still open.
+- Verified in headless Chromium against the built Angular bundle (`scripts/smoke-ocr.mjs`, 2026-09-21): reading bridge v1 present; overlay + text layer mounted in `.stage`; OCR toggle → consent → model download → `Ready (wasm)` through the bundled worker chunk; keydown blocked while an input claim is held and released cleanly; settings persisted; `meikiocr-web-assets-v1` cache created; after reload the layer is ready again with **zero** `.onnx` network requests.
+- The OCR engine itself is verified in Chromium in the meikiocr-web repo (24/24 fixtures match the native pipeline).
+- Not yet run against a real PPSSPP WASM build: capture correctness at the render boundary, extension (Yomitan/Hachidori) gate on game text, fullscreen with the emulator, input arbitration under SDL. These are release gates (plan §14 C/D/E), still open.
 - Game identity is best-effort (mounted file name); PPSSPP's disc ID is not exposed to JS. Save-state loads inside the emulator are not observable from the shell, so the stale-image check is the fallback invalidation.
 - WebGPU is selectable but unvalidated; it falls back to WASM.
