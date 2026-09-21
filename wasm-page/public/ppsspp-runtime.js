@@ -4368,6 +4368,11 @@ function makeWorkerFsGameFile(file, safeName) {
 function mountGameFileFast(FS, file, safeName, label) {
   const workerFS = globalThis.WORKERFS || window.WORKERFS;
   if (!workerFS || !FS?.mount) return null;
+  // Emscripten's WORKERFS asserts ENVIRONMENT_IS_WORKER inside mount(); on the main
+  // thread that assert calls abort(), which permanently kills the runtime before
+  // PPSSPP starts (the game never boots, "Starting PPSSPP…" spins forever). Only
+  // use it when this code actually runs in a worker; otherwise load into MEMFS.
+  if (typeof importScripts !== "function") return null;
 
   const mountFile = makeWorkerFsGameFile(file, safeName);
   const mountDir = VIRTUAL_GAME_DIR + "/.fast-" + (++fastGameMountSeq);
