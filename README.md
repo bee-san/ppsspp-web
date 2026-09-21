@@ -33,7 +33,8 @@ If you temporarily want to use a separate checkout, override
 1. Install the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on
    (code `2055492159`) and keep Anki open. On Android use
    [AnkiConnect Android](https://github.com/KamWithK/AnkiconnectAndroid) with AnkiDroid.
-2. Open the side panel → **Mining** tab → **Test connection**. Anki asks whether
+2. Open the Mining settings (right-click / long-press the header **Mine** button, or
+   side panel → **Mining**) → **Test connection**. Anki asks whether
    this site may use AnkiConnect — click **Yes** (the origin is allowlisted once).
 3. Set the audio / picture field names to match your note type (defaults
    `SentenceAudio` / `Picture`) and an optional tag (`ppsspp-web`).

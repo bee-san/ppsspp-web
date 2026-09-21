@@ -1610,7 +1610,9 @@ button.mine-btn.active { color: var(--accent); }
 button.mine-btn.picking {
   color: #051410; background: var(--accent); border-color: var(--accent2);
 }
-button.mine-btn:disabled { opacity: .35; }
+button.mine-btn.off { opacity: .55; }
+button.mine-btn.off:hover { opacity: 1; }
+button.mine-btn { -webkit-touch-callout: none; touch-action: manipulation; }
 
 /* Overlay host inside the stage: only the picker is interactive. */
 .mining-overlay {

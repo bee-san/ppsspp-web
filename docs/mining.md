@@ -41,6 +41,13 @@ input claim on the reading bridge). `Esc` cancels.
 
 ## Settings (Mining tab, `localStorage` key `ppsspp_mining_settings_v1`)
 
+Opening the tab (no game needed):
+
+- right-click, long-press (600 ms) or Shift-click the header **Mine** button;
+- when mining is off (or nothing is buffered yet) a plain click on **Mine** opens it;
+- the ⚙ button in the picker header;
+- **Panel** → section dropdown / tab strip → **Mining**.
+
 | Setting | Default | Range |
 |---|---|---|
 | Enabled | on | |

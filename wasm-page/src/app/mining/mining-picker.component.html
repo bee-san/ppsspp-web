@@ -4,6 +4,7 @@
       <div class="mining-picker-head">
         <strong id="miningPickerTitle">Add to Anki</strong>
         <span class="mining-muted">{{ imageMode() === 'animated' ? 'Animated image follows the audio range' : 'Screenshot: pick a frame' }}</span>
+        <button type="button" class="btn mining-close" title="Mining settings" aria-label="Open mining settings" (click)="openSettings()" [disabled]="busy()">⚙</button>
         <button type="button" class="btn mining-close" title="Cancel (Esc)" aria-label="Cancel" (click)="cancel()" [disabled]="busy()">✕</button>
       </div>
 
