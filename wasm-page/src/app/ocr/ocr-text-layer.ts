@@ -21,6 +21,8 @@ import { imageRectToCss } from './ocr-coordinate-map';
 export interface TextLayerOptions {
   strategy: TextLayerStrategy;
   fontScale: number;
+  /** false (default) = transparent text over the game's own glyphs; true = painted (debug). */
+  textVisible?: boolean;
 }
 
 interface Placed {
@@ -52,6 +54,7 @@ export class OcrTextLayer {
     this.root.className = 'ocr-text-layer';
     this.root.setAttribute('lang', 'ja');
     this.root.dataset['ocrStrategy'] = options.strategy;
+    this.root.classList.toggle('ocr-invisible-text', !options.textVisible);
     this.highlight = document.createElement('div');
     this.highlight.className = 'ocr-active-glyph';
     this.highlight.hidden = true;
@@ -63,8 +66,13 @@ export class OcrTextLayer {
     const rebuild = o.strategy !== this.options.strategy;
     this.options = o;
     this.root.dataset['ocrStrategy'] = o.strategy;
-    if (rebuild && this.published) this.setLayout(this.published);
-    else this.reposition();
+    this.root.classList.toggle('ocr-invisible-text', !o.textVisible);
+    if (rebuild && this.published) {
+      // Force a rebuild: setLayout() short-circuits when it sees the same snapshot.
+      const published = this.published;
+      this.published = null;
+      this.setLayout(published);
+    } else this.reposition();
   }
 
   setVisible(v: boolean): void {
@@ -146,6 +154,7 @@ export class OcrTextLayer {
       const span = document.createElement('span');
       span.className = 'ocr-glyph ocr-text-target';
       span.dataset['ocrGlyph'] = g.glyphId;
+      span.dataset['ocrLine'] = g.lineId;
       span.textContent = g.text;
       pEl.appendChild(span);
       placed.push({ el: span, box: g.box, orientation: p.orientation });

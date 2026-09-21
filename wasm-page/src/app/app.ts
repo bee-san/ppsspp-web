@@ -1,5 +1,6 @@
 import { afterNextRender, ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
+import { KeysHelpComponent } from './keys-help.component';
 import { MiningPickerComponent } from './mining/mining-picker.component';
 import { MiningSessionService } from './mining/mining-session.service';
 import { MiningSettingsComponent } from './mining/mining-settings.component';
@@ -10,7 +11,7 @@ import { PpssppRuntime } from './ppsspp-runtime';
 @Component({
   selector: 'app-root',
   templateUrl: './app.html',
-  imports: [OcrSettingsComponent, MiningSettingsComponent, MiningPickerComponent],
+  imports: [OcrSettingsComponent, MiningSettingsComponent, MiningPickerComponent, KeysHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AppComponent {

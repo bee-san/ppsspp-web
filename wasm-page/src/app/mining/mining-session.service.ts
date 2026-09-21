@@ -6,6 +6,7 @@
  * (MP3 worker + animated WebP mux) and the AnkiConnect hand-off. The emulator is
  * only touched through the reading bridge (v2).
  */
+import { openPanelTab } from '../panel-tabs';
 import { Injectable, signal } from '@angular/core';
 import type { LifecycleEvent } from '../ocr/ocr-types';
 import { AnkiConnect, AnkiConnectError, blobToBase64, mediaFilename } from './anki-connect';
@@ -453,29 +454,8 @@ export class MiningSessionService {
    */
   openSettings(): void {
     if (this.picker()) this.cancel();
-    const doc = document;
-    if (!doc.body.classList.contains('panel-open')) {
-      const toggle = doc.getElementById('panelToggleBtn') as HTMLButtonElement | null;
-      if (toggle) toggle.click();
-      else {
-        doc.body.classList.add('panel-open');
-        try {
-          localStorage.setItem('ppsspp_panel_open', '1');
-        } catch {
-          /* storage unavailable */
-        }
-      }
-    }
-    const sel = doc.getElementById('panelTabSelect') as HTMLSelectElement | null;
-    if (sel) {
-      sel.value = 'mining';
-      sel.dispatchEvent(new Event('change', { bubbles: true }));
-    } else {
-      // Runtime not loaded yet: switch the panels directly.
-      doc.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', (t as HTMLElement).dataset['tab'] === 'mining'));
-      doc.querySelectorAll('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === 'tabMining'));
-    }
-    setTimeout(() => (doc.querySelector('#tabMining .mining-settings input, #tabMining .mining-settings button') as HTMLElement | null)?.focus?.(), 50);
+    openPanelTab('mining');
+    setTimeout(() => (document.querySelector('#tabMining .mining-settings input, #tabMining .mining-settings button') as HTMLElement | null)?.focus?.(), 50);
   }
 
   private longPressTimer: ReturnType<typeof setTimeout> | null = null;

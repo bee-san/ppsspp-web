@@ -1,3 +1,4 @@
+import { openPanelTab } from '../panel-tabs';
 import { DecimalPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 
@@ -94,5 +95,9 @@ export class MiningSettingsComponent {
 
   fmtBytes(n: number): string {
     return n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.round(n / 1024)} kB`;
+  }
+
+  openKeys(): void {
+    openPanelTab('keys');
   }
 }

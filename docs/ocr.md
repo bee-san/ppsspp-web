@@ -22,12 +22,12 @@ wasm-page/src/app/ocr/
   ocr-settings.ts            schema-versioned localStorage record + per-game regions (tested)
   ocr-runtime-bridge.ts      typed wrapper for window.PpssppReadingBridge
   ocr-frame-source.ts        rAF-synchronised canvas copy, region crop, bounded downsample
-  ocr-text-layer.ts          source-aligned real-DOM text (line-text / glyph-spans strategies)
+  ocr-text-layer.ts          source-aligned real-DOM text (glyph-spans default = one span per character on its OCR box; line-text alternative); invisible by default
   ocr-text-popup.ts          plain-text card: MeikiPop placement, hold corridor, pin/copy/close
   ocr-input-gate.ts          balanced reading-input claims (selection, popup, settings)
   ocr-region-selector.ts     drag-to-select normalized region; Esc cancels
   ocr-diagnostics.ts         local-only counters
-  ocr-session.service.ts     orchestration + meikiocr-web client (consent, progress, profile)
+  ocr-session.service.ts     orchestration + meikiocr-web client (one-click enable = download consent, progress, profile)
   ocr-settings.component.*   settings surface (side panel "OCR" tab)
   ocr.worker.ts              module-worker entry bundling meikiocr-web/worker
 wasm-page/scripts/export-ocr-assets.mjs   fetch+verify models, copy matching ORT wasm/mjs → public/ocr-assets/
@@ -79,6 +79,21 @@ visual wrap. Spans are now `inline-block` with zero flow advance, placed by
 Yomitan scanner (vendored under `scripts/yomitan-scanner/`, test-only) reads
 each paragraph as one continuous run, and caret hit-testing resolves to the
 right glyph. Verified in the emulator E2E on live emulator text.
+
+**Invisible overlay (default since settings schema v2).** The DOM text is
+`color: transparent` (not `visibility: hidden`, which extensions skip): the
+player sees the game's own glyphs; the extension's caret hit-testing
+(`caretRangeFromPoint`) still resolves to the OCR text underneath. Each
+character is its own span placed on its OCR box (`glyph-spans`), because uniform
+letter-spacing over a line whose box is ink-bounded drifts by up to two
+characters at the line end (harness: 13/21 caret hits for `line-text` vs 21/21
+for `glyph-spans`). "Show recognized text over the game" in the OCR tab paints
+the layer for debugging. v1 settings that still had the old `line-text` default
+are migrated to `glyph-spans`; an explicit choice is kept.
+
+**One-click enable.** Clicking the header OCR button is the confirmation for the
+one-time model download (toast + progress line in the panel); there is no
+separate consent prompt. The `modelDownloadConsent` flag is still recorded.
 
 ## Capture
 

@@ -15,8 +15,14 @@ written into your most recently added Anki card via AnkiConnect. See
 `.github/workflows/pages-ocr.yml` from the `main` branch. The
 emulator binaries are the upstream-published PPSSPP WASM build pinned by
 SHA-256 in `wasm-page/emulator.lock.json`; OCR models are pinned by
-`meikiocr-web/models.lock.json`. Enable OCR from the header toggle (a one-time
-~46 MB model download, cached in the browser; nothing leaves the page).
+`meikiocr-web/models.lock.json`. One click on the header **OCR** button enables
+text reading (the click starts the one-time ~46 MB model download, cached in the
+browser; nothing leaves the page). Like MeikiPop, the recognized text is an
+invisible layer placed character-by-character over the game's own text, so you
+see only the game while your dictionary extension (Yomitan etc.) looks words up
+on hover. Recognition covers the full game viewport by default. The **Keys** tab
+in the side panel lists every key the page reacts to (OCR activation key, mining
+hotkey, picker keys, PPSSPP's default keyboard map).
 
 This repository contains:
 

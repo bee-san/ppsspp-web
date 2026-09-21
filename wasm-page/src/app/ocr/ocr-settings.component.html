@@ -15,11 +15,8 @@
     }
   </p>
 
-  @if (consentRequired()) {
-    <div class="ocr-consent">
-      <button type="button" class="primary" (click)="ocr.grantConsent()">Download models &amp; enable</button>
-      <button type="button" class="btn" (click)="ocr.declineConsent()">Not now</button>
-    </div>
+  @if (!s().enabled) {
+    <p class="ocr-muted">One click: enabling downloads ~46 MB of model files once (kept in this site's cache), then hover game text with your dictionary extension. Runs locally; nothing leaves the page. Recognition covers the full game viewport by default. <a href="#" (click)="$event.preventDefault(); openKeys()">Keys &amp; shortcuts</a></p>
   }
 
   @if (s().enabled) {
@@ -42,8 +39,8 @@
       @if (s().presentation === 'source-aligned') {
         <label>Text layout
           <select class="btn" [value]="s().textLayerStrategy" (change)="onSelect('textLayerStrategy', $event)">
-            <option value="line-text">Continuous line text (default)</option>
-            <option value="glyph-spans">Per-character positioned spans (experimental)</option>
+            <option value="glyph-spans">Per-character positioned (default; exact overlay)</option>
+            <option value="line-text">Continuous line text (uniform spacing)</option>
           </select>
         </label>
       } @else {
@@ -57,6 +54,7 @@
         </label>
       }
 
+      <label class="ocr-toggle"><input type="checkbox" [checked]="s().overlayTextVisible" (change)="onCheckbox('overlayTextVisible', $event)" /> Show recognized text over the game (debug; off = invisible layer over the game's own text, like MeikiPop)</label>
       <label class="ocr-toggle"><input type="checkbox" [checked]="s().autoScan" (change)="onCheckbox('autoScan', $event)" /> Auto scan</label>
       <label class="ocr-toggle"><input type="checkbox" [checked]="s().scanOnMouseMove" (change)="onCheckbox('scanOnMouseMove', $event)" [disabled]="!s().autoScan" /> Scan on pointer movement (otherwise periodic)</label>
       <label class="ocr-toggle"><input type="checkbox" [checked]="s().lookupsWithoutHotkey" (change)="onCheckbox('lookupsWithoutHotkey', $event)" [disabled]="!s().autoScan" /> Text follows the pointer without holding a key</label>
@@ -87,7 +85,7 @@
         </select>
       </label>
 
-      <p class="ocr-muted ocr-mode">{{ ocr.modeDescription() }}</p>
+      <p class="ocr-muted ocr-mode">{{ ocr.modeDescription() }} <a href="#" (click)="$event.preventDefault(); openKeys()">All keys &amp; shortcuts</a></p>
 
       <details>
         <summary>Advanced</summary>

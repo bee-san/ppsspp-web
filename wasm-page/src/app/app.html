@@ -26,7 +26,7 @@
 
     <div class="hbar-group" id="displayGroup">
       <button id="fullscreenBtn" class="icon-btn" title="Fullscreen"><i data-lucide="maximize"></i></button>
-      <button id="ocrToggleBtn" type="button" class="ocr-btn" [class.active]="ocr.settings().enabled" [attr.aria-pressed]="ocr.settings().enabled" title="OCR: read game text with your dictionary extension (runs locally)" (click)="ocr.toggleEnabled()"><i data-lucide="eye"></i><span class="btn-lbl"> OCR</span></button>
+      <button id="ocrToggleBtn" type="button" class="ocr-btn" [class.active]="ocr.settings().enabled" [class.busy]="ocr.diagnostics().phase === 'fetching' || ocr.diagnostics().phase === 'initializing'" [attr.aria-pressed]="ocr.settings().enabled" [title]="ocr.settings().enabled ? 'OCR on: ' + ocr.diagnostics().message + ' — click to turn off' : 'OCR: one click to read game text with your dictionary extension (downloads models once, runs locally)'" (click)="ocr.toggleEnabled()"><i data-lucide="eye"></i><span class="btn-lbl"> OCR</span></button>
       <button id="mineBtn" type="button" class="ocr-btn mine-btn" [class.active]="mining.buffering()" [class.picking]="!!mining.picker()" [class.off]="!mining.settings().enabled" [attr.aria-pressed]="!!mining.picker()" [title]="mining.settings().enabled ? 'Sentence mining: add the last seconds of audio + image to your latest Anki card (hotkey ' + (mining.settings().hotkey.key || mining.settings().hotkey.code) + '). Right-click, long-press or Shift-click for settings.' : 'Sentence mining is off — click to open its settings'" (click)="mining.onMineButton($event)" (contextmenu)="$event.preventDefault(); mining.openSettings()" (pointerdown)="mining.onMinePointerDown($event)" (pointerup)="mining.onMinePointerUp()" (pointercancel)="mining.onMinePointerUp()" (pointerleave)="mining.onMinePointerUp()"><i data-lucide="scissors"></i><span class="btn-lbl"> Mine</span></button>
       <select id="gamepadSelect" class="btn" title="Active controller">
         <option value="-1">All controllers</option>
@@ -186,6 +186,7 @@
           <option value="storage">OPFS Storage</option>
           <option value="ocr">OCR</option>
           <option value="mining">Mining</option>
+          <option value="keys">Keys</option>
           <option value="info">System</option>
           <option value="log">Console</option>
           <option value="about">About</option>
@@ -200,6 +201,7 @@
         <div class="tab"        data-tab="storage"><i data-lucide="hard-drive"></i> OPFS</div>
         <div class="tab"        data-tab="ocr"><i data-lucide="eye"></i> OCR</div>
         <div class="tab"        data-tab="mining"><i data-lucide="scissors"></i> Mining</div>
+        <div class="tab"        data-tab="keys"><i data-lucide="keyboard"></i> Keys</div>
         <div class="tab"        data-tab="info"><i data-lucide="settings"></i> System</div>
         <div class="tab"        data-tab="log"><i data-lucide="terminal"></i> Console</div>
         <div class="tab"        data-tab="about"><i data-lucide="info"></i> About</div>
@@ -211,6 +213,10 @@
 
       <div class="tab-panel" id="tabMining">
         <app-mining-settings></app-mining-settings>
+      </div>
+
+      <div class="tab-panel" id="tabKeys">
+        <app-keys-help></app-keys-help>
       </div>
 
       <div class="tab-panel active" id="tabLibrary">

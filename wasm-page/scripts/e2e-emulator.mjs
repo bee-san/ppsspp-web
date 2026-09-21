@@ -117,11 +117,9 @@ console.log("canvas:", JSON.stringify(ctxInfo));
   check(Number(cap.nonzeroPct) > 5 && cap.brightPx > 1000, `render-safe capture (preserveDrawingBuffer=false): ${cap.w}x${cap.h}, ${cap.nonzeroPct}% non-black, ${cap.brightPx} bright px`);
   writeFileSync("/tmp/emu-capture.png", Buffer.from(cap.png.split(",")[1], "base64"));
 }
-// Enable OCR (consent) and wait for Ready.
+// Enable OCR (one click, no consent prompt) and wait for Ready.
 await page.evaluate(() => { document.body.classList.add("panel-open"); document.querySelector(".tab[data-tab=ocr]").click(); });
 await page.click("#ocrToggleBtn");
-await page.waitForSelector(".ocr-consent", { timeout: 10_000 });
-await page.click(".ocr-consent button.primary");
 await page.waitForFunction(() => /^Ready/.test((document.querySelector(".ocr-status")?.textContent ?? "").trim()), null, { timeout: 180_000 });
 // Show diagnostics in the panel
 await page.evaluate(() => { const cb = [...document.querySelectorAll("#tabOcr input[type=checkbox]")].find((i) => /diagnostics/i.test(i.parentElement?.textContent ?? "")); if (cb && !cb.checked) cb.click(); });

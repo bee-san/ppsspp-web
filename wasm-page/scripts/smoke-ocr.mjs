@@ -51,11 +51,18 @@ await page.context().unroute(isHachidoriUrl);
 // open OCR tab and enable
 await page.evaluate(() => { document.body.classList.add("panel-open"); document.querySelector(".tab[data-tab=ocr]").click(); });
 await page.click("#ocrToggleBtn");
-await page.waitForSelector(".ocr-consent", { timeout: 10_000 });
-console.log("consent prompt:", (await page.textContent(".ocr-status")).trim().slice(0, 90) + "…");
-await page.click(".ocr-consent button.primary");
+// One click: no consent prompt; the download starts right away and the header button shows busy.
+console.log("after click:", (await page.textContent(".ocr-status")).trim().slice(0, 90) + "…");
 await page.waitForFunction(() => /^Ready/.test((document.querySelector(".ocr-status")?.textContent ?? "").trim()), null, { timeout: 180_000 });
 console.log("status:", (await page.textContent(".ocr-status")).trim());
+if (await page.locator(".ocr-consent").count()) throw new Error("consent prompt still rendered");
+if (!(await page.evaluate(() => JSON.parse(localStorage.getItem("ppsspp_ocr_settings_v1")).modelDownloadConsent === true))) throw new Error("one-click enable did not record consent");
+// Keys tab exists and lists the live OCR key / mining hotkey
+await page.evaluate(() => document.querySelector(".tab[data-tab=keys]").click());
+const keysTxt = await page.textContent("#tabKeys");
+if (!/Header buttons/.test(keysTxt) || !/Sentence mining/.test(keysTxt) || !/Emulator/.test(keysTxt)) throw new Error("Keys tab incomplete: " + keysTxt.slice(0, 120));
+console.log("keys tab:", keysTxt.replace(/\s+/g, " ").slice(0, 100) + "…");
+await page.evaluate(() => document.querySelector(".tab[data-tab=ocr]").click());
 console.log("workers:", page.workers().map((w) => w.url().split("/").pop()));
 // input claim gate check: with a claim, keydown must not reach a window listener registered later
 const gate = await page.evaluate(() => {

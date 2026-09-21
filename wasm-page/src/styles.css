@@ -1487,6 +1487,13 @@ body.drive-connected .drive-sync-btn { display: inline-flex !important; }
 .ocr-text-layer { position: absolute; inset: 0; pointer-events: none; }
 /* Not activated (hold-key mode, key up): genuinely hidden, so extension scanners skip it too (MeikiPop hides its popup). */
 .ocr-text-layer.ocr-hidden .ocr-text-target { pointer-events: none; visibility: hidden; }
+/* Default (MeikiPop-like): the DOM text is transparent and sits exactly over the game's own glyphs.
+   Extensions scan it (caret hit-testing ignores color); the player sees only the game. Selection
+   highlights from the extension still show, which is the same as on any web page. */
+.ocr-text-layer.ocr-invisible-text .ocr-text-target { color: transparent !important; text-shadow: none; }
+.ocr-text-layer.ocr-invisible-text .ocr-text-target::selection { background: rgba(120, 180, 255, 0.35); color: transparent; }
+.ocr-text-layer.ocr-invisible-text .ocr-active-glyph { visibility: hidden; } /* keeps geometry for diagnostics/tests */
+.ocr-text-layer.ocr-invisible-text.ocr-stale .ocr-text-target { text-decoration: none; }
 /* One paragraph container = one scannable text run for extensions (absolute → paragraph break in Yomitan). */
 .ocr-paragraph { position: absolute; left: 0; top: 0; width: 0; height: 0; overflow: visible; white-space: nowrap; pointer-events: none; }
 .ocr-text-target {
@@ -1599,7 +1606,22 @@ button.ocr-btn.active {
   box-shadow: inset 0 0 0 1px rgba(0,212,170,.15);
 }
 button.ocr-btn.active i, button.ocr-btn.active svg { filter: drop-shadow(0 0 4px rgba(0,212,170,.6)); }
+button.ocr-btn.busy i, button.ocr-btn.busy svg { animation: pulse 1.1s ease-in-out infinite; }
 @media (max-width: 900px) { button.ocr-btn { padding: 0 8px; } }
+
+/* Keys & shortcuts tab */
+.keys-help { padding: 0 12px 12px; }
+.keys-help h3 { margin: 14px 0 6px; font-size: 13px; color: var(--text); }
+.keys-help h3:first-child { margin-top: 0; }
+.keys-help table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.keys-help td { padding: 4px 6px; vertical-align: top; border-top: 1px solid rgba(255,255,255,.06); }
+.keys-help td:first-child { white-space: nowrap; width: 40%; }
+.keys-help kbd {
+  display: inline-block; padding: 1px 6px; border-radius: 4px; font: 600 11.5px/1.5 ui-monospace, monospace;
+  background: var(--surface2, #23262e); border: 1px solid var(--border2, #3a3d46); border-bottom-width: 2px; color: var(--text);
+}
+.keys-help .ocr-muted { margin: 4px 0 0; }
+.keys-help .keys-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 
 /* ══════════════════════════════════════════════════════════════════
    Sentence mining (audio + image → Anki)
