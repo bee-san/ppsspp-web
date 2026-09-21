@@ -454,33 +454,40 @@ class WasmThreadingHandler(SimpleHTTPRequestHandler):
     """
     Serves the web repo and a separate PPSSPP wasm repo together.
 
-    Requests for / or /index.html are transparently rewritten to /wasm-page/index.html.
-    Static assets (app.css, app.js, icons, sw.js, etc.) live in wasm-page/
-    and are served from the web repo. Build outputs like /build-wasm/... are served
-    from the wasm repo.
+    Requests for / or /index.html are transparently rewritten to the Angular build
+    in /wasm-page/dist/ppsspp-web. Static assets first resolve from that build,
+    then from /wasm-page/public for local development. Build outputs like
+    /build-wasm/... are served from the wasm repo.
     """
-    WEB_ROOT_FILES = {
-        "/app.css",
-        "/app.js",
+    PUBLIC_FILES = {
         "/favicon.ico",
         "/manifest.webmanifest",
+        "/ppsspp-runtime.js",
         "/sw.js",
     }
 
     def __init__(self, *args, web_root=None, wasm_root=None, **kwargs):
         self.web_root = os.path.abspath(web_root)
         self.wasm_root = os.path.abspath(wasm_root)
+        self.angular_root = os.path.join(self.web_root, "wasm-page", "dist", "ppsspp-web")
         super().__init__(*args, directory=self.web_root, **kwargs)
 
     def translate_path(self, path):
         request_path = urlparse(path).path
 
         if request_path in ("/", "/index.html"):
-            return self._translate_under(self.web_root, "/wasm-page/index.html")
-        if request_path in self.WEB_ROOT_FILES or request_path.startswith("/icons/"):
-            return self._translate_under(self.web_root, "/wasm-page" + request_path)
+            angular_index = os.path.join(self.angular_root, "index.html")
+            if os.path.isfile(angular_index):
+                return self._translate_under(self.angular_root, "/index.html")
+            return self._translate_under(self.web_root, "/wasm-page/src/index.html")
+        angular_path = self._translate_under(self.angular_root, request_path)
+        if os.path.isfile(angular_path):
+            return angular_path
+        public_path = self._translate_under(self.web_root, "/wasm-page/public" + request_path)
+        if request_path in self.PUBLIC_FILES or request_path.startswith("/icons/"):
+            return public_path
         if request_path == "/assets-manifest.txt":
-            return self._translate_under(self.web_root, "/wasm-page/assets-manifest.txt")
+            return public_path
         if request_path.startswith(("/wasm-page/", "/server/")):
             return self._translate_under(self.web_root, request_path)
 

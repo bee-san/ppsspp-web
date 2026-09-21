@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Antonio Ricciardi
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 /* ── Constants ──────────────────────────────────────────────────── */
 let BUILD_DIR          = "build-wasm/";
 const BUILD_STAMP      = String(Date.now());
@@ -6,6 +11,8 @@ const MANIFEST         = "assets-manifest.txt";
 const USE_PRELOADED_ASSETS = true;
 const VIRTUAL_ASSETS   = "/emsdk/upstream/emscripten/cache/sysroot/share/ppsspp/assets";
 const VIRTUAL_GAME_DIR = "/games";
+const GAME_FILE_ACCEPT = ".iso,.cso,.chd,.pbp,.elf,.prx";
+const GAME_FILE_EXT_RE = /\.(iso|cso|chd|pbp|elf|prx)$/i;
 
 // Persistence: PPSSPP writes config+saves to $HOME/.config/ppsspp/ on Linux/Emscripten
 const PERSIST_ROOTS       = ["/home/web_user/.config/ppsspp", "/root/.config/ppsspp"];
@@ -29,6 +36,10 @@ const WEB_NATIVE_TIMING_CONFIG = [
   ["Sound", "AudioBufferSize", "1024"],
   ["Sound", "FillAudioGaps", "True"],
   ["Sound", "AudioSyncMode", "0"],
+];
+const WEB_STABILITY_CONFIG = [
+  ["General", "IgnoreBadMemAccess", "True"],
+  ["CPU", "FastMemoryAccess", "True"],
 ];
 const MOBILE_TOUCH_CONFIG = [
   ["General", "UIScaleFactor", "3"],
@@ -103,10 +114,22 @@ const NETWORK_ENABLE_KEY = "ppsspp_network_enable";
 const NETWORK_SERVER_KEY = "ppsspp_network_server";
 const NETWORK_NICK_KEY   = "ppsspp_network_nick";
 const NETWORK_MAC_KEY    = "ppsspp_network_mac";
+const PRELOAD_FAVORITES_KEY = "ppsspp_preload_favorites";
+const PRELOAD_FAVORITES_MIGRATED_KEY = "ppsspp_preload_favorites_migrated_v1";
+const PRELOAD_DEFAULTS_APPLIED_KEY = "ppsspp_preload_defaults_applied_v1";
 const ADHOC_WS_PORT      = 27312;
 
 let stableViewportWidth = 0;
 let stableViewportHeight = 0;
+let stableViewportOrientation = "";
+
+function fullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+function viewportOrientation(width = window.innerWidth || 0, height = window.innerHeight || 0) {
+  return width >= height ? "landscape" : "portrait";
+}
 
 function isTextEntryActive() {
   const el = document.activeElement;
@@ -116,21 +139,33 @@ function isTextEntryActive() {
 }
 
 function syncViewportAfterFocus() {
-  syncViewportSize();
+  syncViewportSize({ reset: false });
   setTimeout(() => {
-    syncViewportSize();
+    syncViewportSize({ reset: false });
     if (isTextEntryActive()) {
       document.activeElement.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "smooth" });
     }
   }, 260);
 }
 
-function syncViewportSize() {
+function syncViewportSize(options = {}) {
+  const reset = options?.reset === true;
   const vv = window.visualViewport;
+  const activeFullscreen = !!fullscreenElement();
+  const visualWidth = Math.round(vv?.width || window.innerWidth || document.documentElement.clientWidth || 0);
   const visualHeight = Math.round(vv?.height || window.innerHeight || document.documentElement.clientHeight || 0);
+  const layoutWidth = Math.round(window.innerWidth || document.documentElement.clientWidth || visualWidth);
   const layoutHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || visualHeight);
-  const width = Math.round(vv?.width || window.innerWidth || document.documentElement.clientWidth || 0);
-  const widthChanged = !stableViewportWidth || Math.abs(width - stableViewportWidth) > 80;
+  const width = activeFullscreen ? Math.max(1, layoutWidth || visualWidth) : Math.max(1, visualWidth || layoutWidth);
+  const orientation = viewportOrientation(width, activeFullscreen ? layoutHeight : visualHeight);
+  const orientationChanged = stableViewportOrientation && stableViewportOrientation !== orientation;
+  let widthChanged = !stableViewportWidth || Math.abs(width - stableViewportWidth) > 80;
+  if (reset || orientationChanged) {
+    stableViewportWidth = 0;
+    stableViewportHeight = 0;
+    widthChanged = true;
+  }
+  stableViewportOrientation = orientation;
   const safeVisualHeight = Math.max(1, visualHeight || layoutHeight || 320);
   const safeLayoutHeight = Math.max(320, layoutHeight || safeVisualHeight);
 
@@ -145,13 +180,28 @@ function syncViewportSize() {
   }
 
   document.body?.classList.toggle("keyboard-open", keyboardOpen);
-  document.documentElement.style.setProperty("--app-h", Math.max(320, stableViewportHeight || visualHeight) + "px");
+  document.body?.classList.toggle("browser-fullscreen", activeFullscreen);
+  const appHeight = activeFullscreen ? Math.max(1, safeLayoutHeight || safeVisualHeight) : Math.max(320, stableViewportHeight || visualHeight);
+  document.documentElement.style.setProperty("--viewport-w", width + "px");
+  document.documentElement.style.setProperty("--app-h", appHeight + "px");
   document.documentElement.style.setProperty("--visual-h", safeVisualHeight + "px");
 }
 
-function notifyRuntimeResize() {
-  syncViewportSize();
+function syncFullscreenOverlays() {
+  const activeFullscreen = !!fullscreenElement();
+  document.body?.classList.toggle("browser-fullscreen", activeFullscreen);
+  if (activeFullscreen && fpsBadge) fpsBadge.style.display = "none";
+}
+
+function notifyRuntimeResize(options = {}) {
+  syncViewportSize(options);
   window.dispatchEvent(new Event("resize"));
+}
+
+function scheduleRuntimeResize(reset = false) {
+  [0, 60, 140, 300, 650].forEach((delay, index) => {
+    setTimeout(() => notifyRuntimeResize({ reset: reset && index === 0 }), delay);
+  });
 }
 
 function emulatorLaunchArgs() {
@@ -162,13 +212,14 @@ function isMobileExperience() {
   return !!window.matchMedia?.("(pointer: coarse)")?.matches;
 }
 
-syncViewportSize();
-window.addEventListener("resize", syncViewportSize, { passive: true });
-window.addEventListener("orientationchange", () => setTimeout(notifyRuntimeResize, 120), { passive: true });
-window.visualViewport?.addEventListener("resize", syncViewportSize, { passive: true });
-window.visualViewport?.addEventListener("scroll", syncViewportSize, { passive: true });
+syncViewportSize({ reset: true });
+window.addEventListener("resize", () => syncViewportSize({ reset: false }), { passive: true });
+window.addEventListener("orientationchange", () => scheduleRuntimeResize(true), { passive: true });
+window.screen?.orientation?.addEventListener?.("change", () => scheduleRuntimeResize(true));
+window.visualViewport?.addEventListener("resize", () => scheduleRuntimeResize(false), { passive: true });
+window.visualViewport?.addEventListener("scroll", () => syncViewportSize({ reset: false }), { passive: true });
 document.addEventListener("focusin", syncViewportAfterFocus);
-document.addEventListener("focusout", () => setTimeout(syncViewportSize, 120));
+document.addEventListener("focusout", () => setTimeout(() => syncViewportSize({ reset: false }), 120));
 
 function setBuildDir(dir) {
   BUILD_DIR = dir;
@@ -209,6 +260,7 @@ const LUCIDE_PATHS = {
   gamepad:  '<line x1="6" y1="11" x2="10" y2="11"/><line x1="8" y1="9" x2="8" y2="13"/><line x1="15" y1="12" x2="15.01" y2="12"/><line x1="17" y1="10" x2="17.01" y2="10"/><path d="M6 3h12l2 7-6 3-2 3-2-3-6-3z"/>',
   info:           '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
   menu:           '<line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="18" x2="20" y2="18"/>',
+  preload:        '<path d="M10 16h.01"/><path d="M2.212 11.577a2 2 0 0 0-.212.896V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5.527a2 2 0 0 0-.212-.896L18.55 5.11A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><path d="M21.946 12.013H2.054"/><path d="M6 16h.01"/>',
   'cloud-upload': '<path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/>',
 };
 function svgIcon(name, cls = "lucide") {
@@ -228,53 +280,70 @@ function triggerDownload(blob, fileName) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-const canvas          = document.getElementById("canvas");
-const fileInput       = document.getElementById("gameFile");
-const fileLabel       = document.getElementById("fileLabel");
-const startBtn        = document.getElementById("startBtn");
-const fullscreenBtn   = document.getElementById("fullscreenBtn");
-const statusEl        = document.getElementById("statusText");
-const statusDot       = document.getElementById("statusDot");
-const stageDotEl      = document.getElementById("stageDot");
-const stageMiniTextEl = document.getElementById("stageMiniText");
-const logEl           = document.getElementById("log");
-const logFilter       = document.getElementById("logFilter");
-const loadOverlay     = document.getElementById("loadOverlay");
-const loadLabel       = document.getElementById("loadLabel");
-const progressBar     = document.getElementById("progressBar");
-const idleOverlay     = document.getElementById("idleOverlay");
-const idleSubtitle    = document.getElementById("idleSubtitle");
-const idleStartBtn    = document.getElementById("idleStartBtn");
-const fpsBadge        = document.getElementById("fpsBadge");
-const gpuBadge        = document.getElementById("gpuBadge");
-const gamepadBadge    = document.getElementById("gamepadBadge");
-const gamepadSelect   = document.getElementById("gamepadSelect");
-const gpuSelectEl     = document.getElementById("gpuSelect");
-const panelToggleBtn  = document.getElementById("panelToggleBtn");
-const panelTabSelect  = document.getElementById("panelTabSelect");
-const googleClientIdInput = document.getElementById("googleClientIdInput");
-const driveAuthEl     = document.getElementById("iDriveAuth");
-const driveFolderEl   = document.getElementById("iDriveFolder");
-const driveRemoteEl   = document.getElementById("iDriveRemote");
-const driveActivityEl = document.getElementById("driveActivity");
-const driveRemoteList = document.getElementById("driveRemoteList");
-const driveBadgeEl    = document.getElementById("driveBadge");
-const driveBadgeText  = document.getElementById("driveBadgeText");
-const networkEnableToggle = document.getElementById("networkEnableToggle");
-const networkServerInput  = document.getElementById("networkServerInput");
-const networkNickInput    = document.getElementById("networkNickInput");
-const networkMacInput     = document.getElementById("networkMacInput");
-const networkUseThisHostBtn = document.getElementById("networkUseThisHostBtn");
-const networkTestBtn      = document.getElementById("networkTestBtn");
-const networkSaveBtn      = document.getElementById("networkSaveBtn");
-const networkActivityEl   = document.getElementById("networkActivity");
-const netServerEl         = document.getElementById("iNetServer");
-const netPortEl           = document.getElementById("iNetPort");
+const byId = id => document.getElementById(id);
+function on(target, type, handler, options) {
+  const el = typeof target === "string" ? byId(target) : target;
+  if (!el) {
+    console.warn("PPSSPP Web: missing DOM element for listener", target);
+    return null;
+  }
+  el.addEventListener(type, handler, options);
+  return el;
+}
+
+const canvas          = byId("canvas");
+const stageEl         = document.querySelector(".stage");
+const fileInput       = byId("gameFile");
+const fileLabel       = byId("fileLabel");
+const runtimeGameLabel = byId("runtimeIsoLabel") || byId("runtimeGameLabel");
+const runtimeGameInput = byId("runtimeIsoFile") || byId("runtimeGameFile");
+const startBtn        = byId("startBtn");
+const fullscreenBtn   = byId("fullscreenBtn");
+const statusEl        = byId("statusText");
+const statusDot       = byId("statusDot");
+const stageDotEl      = byId("stageDot");
+const stageMiniTextEl = byId("stageMiniText");
+const logEl           = byId("log");
+const logFilter       = byId("logFilter");
+const loadOverlay     = byId("loadOverlay");
+const loadLabel       = byId("loadLabel");
+[fileInput, runtimeGameInput, byId("libraryImportFile")]
+  .filter(Boolean)
+  .forEach(input => { input.accept = GAME_FILE_ACCEPT; });
+const progressBar     = byId("progressBar");
+const idleOverlay     = byId("idleOverlay");
+const idleSubtitle    = byId("idleSubtitle");
+const idleStartBtn    = byId("idleStartBtn");
+const fpsBadge        = byId("fpsBadge");
+const gpuBadge        = byId("gpuBadge");
+const gamepadBadge    = byId("gamepadBadge");
+const gamepadSelect   = byId("gamepadSelect");
+const gpuSelectEl     = byId("gpuSelect");
+const panelToggleBtn  = byId("panelToggleBtn");
+const panelTabSelect  = byId("panelTabSelect");
+const googleClientIdInput = byId("googleClientIdInput");
+const driveAuthEl     = byId("iDriveAuth");
+const driveFolderEl   = byId("iDriveFolder");
+const driveRemoteEl   = byId("iDriveRemote");
+const driveActivityEl = byId("driveActivity");
+const driveRemoteList = byId("driveRemoteList");
+const driveBadgeEl    = byId("driveBadge");
+const driveBadgeText  = byId("driveBadgeText");
+const networkEnableToggle = byId("networkEnableToggle");
+const networkServerInput  = byId("networkServerInput");
+const networkNickInput    = byId("networkNickInput");
+const networkMacInput     = byId("networkMacInput");
+const networkUseThisHostBtn = byId("networkUseThisHostBtn");
+const networkTestBtn      = byId("networkTestBtn");
+const networkSaveBtn      = byId("networkSaveBtn");
+const networkActivityEl   = byId("networkActivity");
+const netServerEl         = byId("iNetServer");
+const netPortEl           = byId("iNetPort");
 
 // Panel toggle (hidden by default; restore from localStorage)
 const PANEL_KEY = "ppsspp_panel_open";
 if (localStorage.getItem(PANEL_KEY) === "1") document.body.classList.add("panel-open");
-panelToggleBtn.addEventListener("click", () => {
+on(panelToggleBtn, "click", () => {
   const open = document.body.classList.toggle("panel-open");
   localStorage.setItem(PANEL_KEY, open ? "1" : "0");
 });
@@ -293,6 +362,94 @@ let selectedGame = null;
 let selectedStoredGame = null;
 let started      = false;
 let runtimeReady = false;
+
+/* ── Reading bridge (OCR text layer) ─────────────────────────────
+ * Narrow, versioned surface consumed by wasm-page/src/app/ocr/. It exposes
+ * lifecycle/viewport state and a balanced input claim; it performs no OCR,
+ * no capture and no network. Pixel capture is done by the OCR layer from
+ * the game canvas element itself.
+ */
+const ReadingBridge = (() => {
+  const listeners = new Set();
+  const state = {
+    phase: "idle",           // idle | loading | running | aborted
+    gameSessionId: 0,        // increments per runtime start
+    sceneEpoch: 0,           // increments on hard content changes we can observe
+    gameId: null,            // best-effort: disc-style id or file name
+    fullscreen: false,
+    documentVisible: !document.hidden,
+  };
+  const claims = new Map();  // reason -> count
+  const emit = (ev) => { for (const l of [...listeners]) { try { l(ev); } catch(e) { console.error("ReadingBridge listener failed", e); } } };
+  const setPhase = (phase) => { if (state.phase === phase) return; state.phase = phase; emit({ type: "phase", phase }); };
+  const bumpScene = (reason) => { state.sceneEpoch++; emit({ type: "scene-epoch", sceneEpoch: state.sceneEpoch, reason }); };
+  const setGame = (gameId) => {
+    const id = gameId ? String(gameId).split("/").pop() : null;
+    if (id === state.gameId) return;
+    state.gameId = id;
+    emit({ type: "game-changed", gameId: id });
+    bumpScene("game-changed");
+  };
+  const anyClaim = () => claims.size > 0;
+  // Installed before SDL registers its own window listeners (which happens when
+  // the emulator starts), so stopImmediatePropagation() reliably precedes them.
+  // Only keydown/keypress are blocked; keyup always passes to avoid stuck buttons.
+  // Reading-layer key observers (OCR hotkey, Escape for region selection) run
+  // here, ahead of the gate, so they still work while a claim blocks the emulator.
+  // They must not call stopPropagation themselves; the gate decides.
+  const readingKeyListeners = new Set();
+  const keyGate = (e) => {
+    if (e.type === "keydown" || e.type === "keyup") {
+      for (const fn of readingKeyListeners) { try { fn(e); } catch (err) { console.warn("[ReadingBridge] key listener failed", err); } }
+    }
+    if (!anyClaim()) return;
+    if (e.type === "keyup") return;
+    e.stopImmediatePropagation();
+  };
+  window.addEventListener("keydown",  keyGate, true);
+  window.addEventListener("keyup",    keyGate, true);
+  window.addEventListener("keypress", keyGate, true);
+  document.addEventListener("visibilitychange", () => {
+    state.documentVisible = !document.hidden;
+    emit({ type: "visibility", visible: state.documentVisible });
+  });
+  document.addEventListener("fullscreenchange", () => {
+    state.fullscreen = !!fullscreenElement();
+    emit({ type: "fullscreen", active: state.fullscreen });
+  });
+  canvas?.addEventListener("webglcontextlost", () => emit({ type: "context-lost" }));
+
+  const api = Object.freeze({
+    version: 1,
+    getState: () => ({ ...state }),
+    getCanvas: () => canvas,
+    getStage: () => stageEl,
+    subscribeLifecycle(cb) { listeners.add(cb); return () => listeners.delete(cb); },
+    /** Balanced claim: returns a release function. While any claim is active, keydown does not reach the emulator. */
+    setReadingInputClaim(reason, active) {
+      const key = String(reason || "reading");
+      if (active) {
+        claims.set(key, (claims.get(key) || 0) + 1);
+        let released = false;
+        return () => { if (released) return; released = true; api.setReadingInputClaim(key, false); };
+      }
+      const n = (claims.get(key) || 0) - 1;
+      if (n <= 0) claims.delete(key); else claims.set(key, n);
+      return () => {};
+    },
+    hasInputClaim: anyClaim,
+    /** Observe keydown/keyup before the emulator (and before the claim gate). Returns unsubscribe. */
+    addReadingKeyListener(fn) { readingKeyListeners.add(fn); return () => readingKeyListeners.delete(fn); },
+    isFullscreenActive: () => !!fullscreenElement(),
+    requestFullscreen: () => requestBrowserFullscreen(),
+    exitFullscreen: () => exitBrowserFullscreen(),
+    // internal hooks used by this runtime
+    _setPhase: setPhase, _bumpScene: bumpScene, _setGame: setGame,
+    _started() { state.gameSessionId++; setPhase("loading"); emit({ type: "scene-epoch", sceneEpoch: ++state.sceneEpoch, reason: "runtime-start" }); },
+  });
+  window.PpssppReadingBridge = api;
+  return api;
+})();
 const trackedAudioContexts = [];
 const audioDebug = {
   callbacks: 0, nonsilent: 0, peak: 0, rate: 0, deviceStarted: false,
@@ -302,7 +459,7 @@ const audioDebug = {
 
 function updateIdleOverlay() {
   if (!idleOverlay || started) return;
-  let text = "Open a ROM or pick a game from the library to start PPSSPP in the browser.";
+  let text = "Open a PSP game file or pick one from the library to start PPSSPP in the browser.";
   if (selectedGame) text = "Ready to launch " + selectedGame.name + ".";
   else if (selectedStoredGame) text = "Ready to launch " + selectedStoredGame + " from your library.";
   if (idleSubtitle) idleSubtitle.textContent = text;
@@ -310,48 +467,32 @@ function updateIdleOverlay() {
 updateIdleOverlay();
 
 function setStartButtonMode(mode) {
-  if (mode === "pause") {
-    startBtn.disabled = false;
-    startBtn.title = "Pause / PPSSPP menu";
-    startBtn.innerHTML = `${svgIcon("menu")}<span class="btn-lbl"> Menu</span>`;
+  if (!startBtn) return;
+  if (mode === "running") {
+    startBtn.disabled = true;
+    startBtn.style.display = "none";
+    startBtn.title = "PPSSPP is running";
+    startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> Running</span>`;
   } else if (mode === "loading") {
     startBtn.disabled = true;
+    startBtn.style.display = "";
     startBtn.title = "Starting PPSSPP";
     startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> Launch</span>`;
   } else {
     startBtn.disabled = false;
+    startBtn.style.display = "";
     startBtn.title = "Launch PPSSPP";
     startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> Launch</span>`;
   }
 }
 
-function dispatchEscape(target, type) {
-  const ev = new KeyboardEvent(type, {
-    key: "Escape",
-    code: "Escape",
-    keyCode: 27,
-    which: 27,
-    bubbles: true,
-    cancelable: true,
-  });
-  target.dispatchEvent(ev);
-}
-
-function openPPSSPPPauseMenu() {
-  if (!started) return start();
-  if (!runtimeReady) return;
-  unlockAudio();
-  canvas.focus();
-  dispatchEscape(document, "keydown");
-  setTimeout(() => {
-    dispatchEscape(document, "keyup");
-  }, 35);
-  log("Sent Escape to PPSSPP pause menu.", "info");
-}
-
 /* ── Toast ──────────────────────────────────────────────────────── */
-const toastEl = document.getElementById("toast");
+const toastEl = byId("toast");
 function showToast(msg, ms = 3200) {
+  if (!toastEl) {
+    console.log("Toast:", msg);
+    return;
+  }
   toastEl.textContent = msg;
   toastEl.classList.add("visible");
   clearTimeout(toastEl._t);
@@ -418,6 +559,8 @@ async function opfsClearAll() {
   try { await root.removeEntry(OPFS_PERSIST_DIR, { recursive: true }); } catch(e) {}
   try { await root.removeEntry(OPFS_GAMES_DIR, { recursive: true }); } catch(e) {}
   try { await root.removeEntry(OPFS_GAME_META_DIR, { recursive: true }); } catch(e) {}
+  localStorage.removeItem(PRELOAD_FAVORITES_KEY);
+  localStorage.removeItem(PRELOAD_FAVORITES_MIGRATED_KEY);
   await root.getDirectoryHandle(OPFS_PERSIST_DIR, { create: true });
   await root.getDirectoryHandle(OPFS_GAMES_DIR, { create: true });
   await root.getDirectoryHandle(OPFS_GAME_META_DIR, { create: true });
@@ -454,6 +597,7 @@ async function opfsPutGame(name, data) {
   const writable = await handle.createWritable();
   await writable.write(data);
   await writable.close();
+  setPreloadFavorite(safe, true);
   try { await writeGameMetadata(safe, data); }
   catch(e) { log("Library metadata failed for " + safe + ": " + e.message, "warn"); }
   return safe;
@@ -463,6 +607,12 @@ async function opfsReadGame(name) {
   const { dir, name: fileName } = await opfsParent(name, false, OPFS_GAMES_DIR);
   const handle = await dir.getFileHandle(fileName);
   return new Uint8Array(await (await handle.getFile()).arrayBuffer());
+}
+
+async function opfsGetGameFile(name) {
+  const { dir, name: fileName } = await opfsParent(name, false, OPFS_GAMES_DIR);
+  const handle = await dir.getFileHandle(fileName);
+  return await handle.getFile();
 }
 
 async function opfsDeleteGame(name) {
@@ -544,7 +694,7 @@ function base64ToBytes(data) {
 }
 
 function stripGameExtension(name) {
-  return name.replace(/\.(iso|cso|pbp|elf|prx)$/i, "");
+  return name.replace(GAME_FILE_EXT_RE, "");
 }
 
 function prettyGameName(name) {
@@ -762,17 +912,17 @@ async function updateStorageInfo() {
     const listEl = document.getElementById("opfsFileList");
     if (listEl) {
       if (!allFiles.length) {
-        listEl.innerHTML = `<span style="padding:8px 12px;color:var(--muted);font-size:11px;display:block">No files persisted yet.</span>`;
+        listEl.innerHTML = `<span class="empty-row">No files persisted yet.</span>`;
       } else {
         // Group by category
         const cats = new Map();
         for (const { path, data, size } of allFiles) {
-          const cat = path.startsWith(VIRTUAL_GAME_DIR + "/") ? "ISO Library" : opfsFileCategory(path);
+          const cat = path.startsWith(VIRTUAL_GAME_DIR + "/") ? "Game Library" : opfsFileCategory(path);
           if (!cats.has(cat)) cats.set(cat, []);
           cats.get(cat).push({ path, size: data?.byteLength || size || 0 });
         }
         // Sort categories: Config first, then alphabetical
-        const catOrder = ["ISO Library", "Config", "System / Config", "Save States", "Save Data", "Screenshots", "Cheats", "Games (PSP)", "Other"];
+        const catOrder = ["Game Library", "Config", "System / Config", "Save States", "Save Data", "Screenshots", "Cheats", "Games (PSP)", "Other"];
         const sorted = [...cats.entries()].sort((a, b) => {
           const ai = catOrder.indexOf(a[0]); const bi = catOrder.indexOf(b[0]);
           return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
@@ -780,7 +930,7 @@ async function updateStorageInfo() {
         let html = "";
         for (const [cat, files] of sorted) {
           const catBytes = files.reduce((s, f) => s + f.size, 0);
-          html += `<div class="opfs-cat-header"><span>${esc(cat)} (${files.length})</span><span style="color:var(--info);font-size:9.5px">${formatBytes(catBytes)}</span></div>`;
+          html += `<div class="opfs-cat-header"><span>${esc(cat)} (${files.length})</span><span class="opfs-cat-size">${formatBytes(catBytes)}</span></div>`;
           for (const { path, size } of files.sort((a, b) => a.path.localeCompare(b.path))) {
             const name = path.split("/").pop();
             html += `<div class="opfs-file-row">`;
@@ -815,15 +965,17 @@ async function downloadStoredFile(path) {
 async function deleteStoredFile(path) {
   if (path.startsWith(VIRTUAL_GAME_DIR + "/")) {
     const name = path.slice((VIRTUAL_GAME_DIR + "/").length);
-    if (!confirm("Delete ISO from OPFS:\n" + name + "?")) return;
+    if (!confirm("Delete game file from OPFS:\n" + name + "?")) return;
     try {
       await opfsDeleteGame(name);
       if (window.FS) { try { window.FS.unlink(path); } catch(e) {} }
+      setPreloadFavorite(name, false);
+      refreshEmulatorGameBrowser("deleted " + name);
       showToast("🗑 Deleted " + name);
       await refreshLibrary();
       updateStorageInfo();
     } catch(e) {
-      log("Delete ISO failed: " + e.message, "err");
+      log("Delete game file failed: " + e.message, "err");
       showToast("❌ Delete failed: " + e.message);
     }
   } else {
@@ -831,13 +983,30 @@ async function deleteStoredFile(path) {
   }
 }
 
+async function togglePreloadFavorite(name) {
+  const enable = !isPreloadFavorite(name);
+  setPreloadFavorite(name, enable);
+  if (!enable) {
+    showToast("Removed startup preload: " + name);
+    await refreshLibrary();
+    return;
+  }
+
+  showToast("Startup preload enabled: " + name);
+  if (started && window.FS && !window.FS.analyzePath?.(VIRTUAL_GAME_DIR + "/" + name)?.exists) {
+    await playOrMountStoredGame(name);
+  } else {
+    await refreshLibrary();
+  }
+}
+
 async function playOrMountStoredGame(name) {
   if (!started || !window.FS) {
     selectedStoredGame = name;
     selectedGame = null;
-    fileLabel.title = name;
+    if (fileLabel) fileLabel.title = name;
     updateIdleOverlay();
-    const textNode = fileLabel.firstChild;
+    const textNode = fileLabel?.firstChild;
     if (textNode && textNode.nodeType === 3) textNode.textContent = "\uD83D\uDCC2 " + name + " ";
     setStatus("Starting " + name, "run");
     showToast("Starting " + name + "…");
@@ -851,11 +1020,12 @@ async function playOrMountStoredGame(name) {
     showToast("Mounting " + name + "…");
     FS.mkdirTree(VIRTUAL_GAME_DIR);
     FS.writeFile(path, await opfsReadGame(name));
-    log("Mounted stored ISO from OPFS: " + path, "ok");
+    log("Mounted stored game file from OPFS: " + path, "ok");
+    refreshEmulatorGameBrowser("mounted " + name);
     showToast("✓ " + name + " mounted");
     refreshLibrary();
   } catch(e) {
-    log("Stored ISO mount failed: " + e.message, "err");
+    log("Stored game mount failed: " + e.message, "err");
     showToast("❌ " + e.message);
   }
 }
@@ -865,33 +1035,57 @@ async function showGameInfo(name) {
     const meta = await ensureGameMetadata(name);
     const stat = (await opfsWalk(OPFS_GAMES_DIR, "", false)).find(g => g.path === name);
     const mounted = !!window.FS?.analyzePath?.(VIRTUAL_GAME_DIR + "/" + name).exists;
+    const preloads = isPreloadFavorite(name);
     const title = meta.title || prettyGameName(name);
     const cover = await readGameCoverURL(name, meta.coverType);
     if (cover) _libraryCoverURLs.push(cover);
 
-    document.getElementById("gameInfoTitle").textContent = title;
-    document.getElementById("gameInfoCover").innerHTML = cover
+    const titleEl = byId("gameInfoTitle");
+    const coverEl = byId("gameInfoCover");
+    const rowsEl = byId("gameInfoRows");
+    const modalEl = byId("gameInfoModal");
+    if (!titleEl || !coverEl || !rowsEl || !modalEl) {
+      showToast("Game details panel is not available in this page version.");
+      return;
+    }
+
+    titleEl.textContent = title;
+    coverEl.innerHTML = cover
       ? `<img src="${cover}" alt="${esc(title)} cover">`
       : `<div class="game-cover" style="height:100%;background:${gameAccent(name)}"><div class="game-cover-fallback">${esc(title.split(/\s+/).slice(0, 4).join(" "))}</div></div>`;
-    document.getElementById("gameInfoRows").innerHTML = [
+    rowsEl.innerHTML = [
       ["File", name],
       ["Format", meta.format || "Unknown"],
       ["Size", formatBytes(stat?.size || 0)],
       ["Stored", "OPFS /" + OPFS_GAMES_DIR + "/" + name],
       ["Runtime", VIRTUAL_GAME_DIR + "/" + name],
       ["Mounted", mounted ? "yes" : "no"],
+      ["Preload", preloads ? "yes" : "no"],
       ["Cover", meta.coverType ? "yes" : "no"],
     ].map(([k, v]) => `<div class="game-info-row"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("");
 
-    const playBtn = document.getElementById("gameInfoPlayBtn");
-    playBtn.textContent = started ? (mounted ? "Ready" : "Mount") : "Play";
-    playBtn.disabled = started && mounted;
-    playBtn.onclick = () => {
-      closeGameInfo();
-      playOrMountStoredGame(name);
-    };
-    document.getElementById("gameInfoModal").classList.add("visible");
-    document.getElementById("gameInfoModal").setAttribute("aria-hidden", "false");
+    const favoriteBtn = byId("gameInfoFavoriteBtn");
+    if (favoriteBtn) {
+      favoriteBtn.innerHTML = `${svgIcon("preload")} ${preloads ? "Preloads" : "Preload"}`;
+      favoriteBtn.classList.toggle("active", preloads);
+      favoriteBtn.setAttribute("aria-pressed", preloads ? "true" : "false");
+      favoriteBtn.onclick = async () => {
+        closeGameInfo();
+        await togglePreloadFavorite(name);
+      };
+    }
+
+    const playBtn = byId("gameInfoPlayBtn");
+    if (playBtn) {
+      playBtn.textContent = started ? (mounted ? "Ready" : "Mount") : "Play";
+      playBtn.disabled = started && mounted;
+      playBtn.onclick = () => {
+        closeGameInfo();
+        playOrMountStoredGame(name);
+      };
+    }
+    modalEl.classList.add("visible");
+    modalEl.setAttribute("aria-hidden", "false");
   } catch(e) {
     log("Game info failed: " + e.message, "err");
     showToast("❌ Info failed: " + e.message);
@@ -899,9 +1093,26 @@ async function showGameInfo(name) {
 }
 
 function closeGameInfo() {
-  const modal = document.getElementById("gameInfoModal");
+  const modal = byId("gameInfoModal");
+  if (!modal) return;
   modal.classList.remove("visible");
   modal.setAttribute("aria-hidden", "true");
+}
+
+function refreshEmulatorGameBrowser(reason) {
+  const refresh = window.Module?._PPSSPP_RefreshGameBrowser;
+  if (typeof refresh !== "function") {
+    log("PPSSPP UI refresh hook is not available in this WASM build.", "dim");
+    return false;
+  }
+  try {
+    refresh();
+    log("PPSSPP UI refresh requested" + (reason ? ": " + reason : "") + ".", "ok");
+    return true;
+  } catch(e) {
+    log("PPSSPP UI refresh failed: " + (e?.message || e), "warn");
+    return false;
+  }
 }
 
 const mountOrSelectStoredGame = playOrMountStoredGame;
@@ -917,6 +1128,65 @@ let _libraryCoverURLs = [];
 function clearLibraryCoverURLs() {
   for (const url of _libraryCoverURLs) URL.revokeObjectURL(url);
   _libraryCoverURLs = [];
+}
+
+function loadPreloadFavorites() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PRELOAD_FAVORITES_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.filter(name => typeof name === "string" && name) : [];
+  } catch(e) {
+    return [];
+  }
+}
+
+function savePreloadFavorites(names) {
+  const unique = [...new Set(names.filter(name => typeof name === "string" && name))].sort((a, b) => a.localeCompare(b));
+  localStorage.setItem(PRELOAD_FAVORITES_KEY, JSON.stringify(unique));
+  updatePreloadFavoriteSummary(unique.length);
+  return unique;
+}
+
+function isPreloadFavorite(name) {
+  return loadPreloadFavorites().includes(name);
+}
+
+function setPreloadFavorite(name, enabled) {
+  const favorites = loadPreloadFavorites();
+  const next = enabled ? [...favorites, name] : favorites.filter(item => item !== name);
+  return savePreloadFavorites(next);
+}
+
+function ensurePreloadFavoritesMigrated(existingNames) {
+  const existing = [...new Set(existingNames.filter(name => typeof name === "string" && name))];
+  const migrated = localStorage.getItem(PRELOAD_FAVORITES_MIGRATED_KEY) === "1";
+  const defaultsApplied = localStorage.getItem(PRELOAD_DEFAULTS_APPLIED_KEY) === "1";
+  if (migrated && defaultsApplied) return loadPreloadFavorites();
+
+  if (!migrated) localStorage.setItem(PRELOAD_FAVORITES_MIGRATED_KEY, "1");
+  if (!existing.length) {
+    localStorage.setItem(PRELOAD_DEFAULTS_APPLIED_KEY, "1");
+    updatePreloadFavoriteSummary(0);
+    return [];
+  }
+
+  const merged = savePreloadFavorites([...loadPreloadFavorites(), ...existing]);
+  localStorage.setItem(PRELOAD_DEFAULTS_APPLIED_KEY, "1");
+  log("Startup preload: enabled by default for " + existing.length + " existing library game" + (existing.length === 1 ? "" : "s") + ".", "ok");
+  return merged;
+}
+
+function prunePreloadFavorites(existingNames) {
+  const existing = new Set(existingNames);
+  const favorites = ensurePreloadFavoritesMigrated(existingNames);
+  const next = favorites.filter(name => existing.has(name));
+  if (next.length !== favorites.length) savePreloadFavorites(next);
+  else updatePreloadFavoriteSummary(next.length);
+  return next;
+}
+
+function updatePreloadFavoriteSummary(count = loadPreloadFavorites().length) {
+  const el = byId("libraryPreloadCount");
+  if (el) el.textContent = count + " preload";
 }
 
 async function ensureGameMetadata(name) {
@@ -953,10 +1223,11 @@ async function refreshLibrary() {
   try {
     const games = await opfsWalk(OPFS_GAMES_DIR, "", false);
     games.sort((a, b) => a.path.localeCompare(b.path));
+    const preloadFavorites = new Set(prunePreloadFavorites(games.map(game => game.path)));
     if (count) count.textContent = games.length + " game" + (games.length === 1 ? "" : "s");
 
     if (!games.length) {
-      empty.innerHTML = "No games in OPFS yet.<br>Add an ISO or use Launch ROM once.";
+      empty.innerHTML = "No games in OPFS yet.<br>Add a game file or launch one once.";
       return;
     }
 
@@ -968,6 +1239,7 @@ async function refreshLibrary() {
       const title = meta.title || prettyGameName(game.path);
       const format = meta.format || (game.path.split(".").pop() || "").toUpperCase();
       const mounted = !!window.FS?.analyzePath?.(VIRTUAL_GAME_DIR + "/" + game.path).exists;
+      const preloads = preloadFavorites.has(game.path);
       const primary = started ? (mounted ? "Ready" : "Mount") : "Play";
       const primaryDisabled = started && mounted ? " disabled" : "";
       const fallback = title.split(/\s+/).slice(0, 4).join(" ");
@@ -980,11 +1252,12 @@ async function refreshLibrary() {
           </div>
           <div class="game-card-body">
             <div class="game-card-title" title="${esc(title)}">${esc(title)}</div>
-            <div class="game-card-meta" title="${esc(game.path)}">${esc(format)} · ${formatBytes(game.size || 0)}</div>
+            <div class="game-card-meta" title="${esc(game.path)}">${esc(format)} · ${formatBytes(game.size || 0)}${preloads ? " · Preload" : ""}</div>
             <div class="game-card-actions">
               <button data-action="play" data-game="${esc(game.path)}"${primaryDisabled}>${primary}</button>
+              <button class="icon-only preload-toggle${preloads ? " active" : ""}" title="${preloads ? "Remove from startup preload" : "Preload on startup"}" aria-pressed="${preloads ? "true" : "false"}" data-action="favorite" data-game="${esc(game.path)}">${svgIcon("preload")}</button>
               <button class="icon-only" title="Info" data-action="info" data-game="${esc(game.path)}">${svgIcon("info")}</button>
-              <button class="icon-only drive-sync-btn" title="Upload ISO to Drive" data-action="drive-upload" data-game="${esc(game.path)}">${svgIcon("cloud-upload")}</button>
+              <button class="icon-only drive-sync-btn" title="Upload game file to Drive" data-action="drive-upload" data-game="${esc(game.path)}">${svgIcon("cloud-upload")}</button>
               <button class="icon-only danger" title="Delete" data-action="delete" data-game="${esc(game.path)}">${svgIcon("trash")}</button>
             </div>
           </div>
@@ -1018,10 +1291,6 @@ async function addGameToLibrary(file) {
 
 async function storeGameBytes(name, bytes) {
   const storedName = await opfsPutGame(name, bytes);
-  if (window.FS) {
-    window.FS.mkdirTree(VIRTUAL_GAME_DIR);
-    window.FS.writeFile(VIRTUAL_GAME_DIR + "/" + storedName, bytes);
-  }
   return storedName;
 }
 
@@ -1229,7 +1498,7 @@ async function refreshSavesTab() {
 
   // Show spinner while loading
   empty.style.display = "block";
-  empty.innerHTML = "<span style='color:var(--muted)'>Loading saves…</span>";
+  empty.innerHTML = `<span class="saves-loading">Loading saves&hellip;</span>`;
   list.style.display = "none";
 
   let fileMap;
@@ -1307,7 +1576,7 @@ async function refreshSavesTab() {
       for (const f of files) allStateFiles.push({ f, slotDir, game, flat });
     }
     const ssBytes = allStateFiles.reduce((s, { f }) => s + f.size, 0);
-    html += `<div class="save-section-label" style="margin-top:6px"><span>${svgIcon("gamepad")} Save States</span><span>${allStateFiles.length} state${allStateFiles.length !== 1 ? "s" : ""} · ${formatBytes(ssBytes)}</span></div>`;
+    html += `<div class="save-section-label save-section-spaced"><span>${svgIcon("gamepad")} Save States</span><span>${allStateFiles.length} state${allStateFiles.length !== 1 ? "s" : ""} · ${formatBytes(ssBytes)}</span></div>`;
 
     // Pair .ppst/.sst with same-base .jpg thumbnail
     const stateByBase = new Map(); // base → { dataFile, thumbFile, slotDir, game, flat }
@@ -1481,19 +1750,19 @@ async function uploadSingleSaveStateToDrive(paths, gameName) {
 async function uploadSingleGameToDrive(gameName) {
   if (!googleAccessToken) { showToast("⚠ Connect Google Drive first"); return; }
   try {
-    setDriveActivity("Uploading ISO " + gameName + "…", "run");
+    setDriveActivity("Uploading game " + gameName + "…", "run");
     await ensureDriveFolders(true);
     showLoading("Uploading " + gameName + " to Drive…");
     const bytes = await opfsReadGame(gameName);
-    await uploadBlobToDrive(gameName, googleDriveGamesId, bytes, "application/octet-stream", "Uploading ISO");
-    log("Google Drive: uploaded ISO " + gameName + " (" + formatBytes(bytes.byteLength) + ").", "ok");
+    await uploadBlobToDrive(gameName, googleDriveGamesId, bytes, "application/octet-stream", "Uploading game");
+    log("Google Drive: uploaded game " + gameName + " (" + formatBytes(bytes.byteLength) + ").", "ok");
     setDriveActivity("Uploaded " + gameName + " to Drive", "ok");
     showToast("✓ " + gameName + " uploaded to Drive");
     await refreshDriveList();
   } catch(e) {
     const message = googleAuthErrorMessage(e);
-    log("Drive ISO upload failed: " + message, "err");
-    setDriveActivity("ISO upload failed: " + message, "bad");
+    log("Drive game upload failed: " + message, "err");
+    setDriveActivity("Game upload failed: " + message, "bad");
     showToast("❌ " + message, 5000);
   } finally { hideLoading(); }
 }
@@ -2078,6 +2347,9 @@ async function forceGamesDirectoryConfig(FS) {
       for (const [section, key, value] of WEB_NATIVE_TIMING_CONFIG) {
         patched = patchIniValue(patched, section, key, value);
       }
+      for (const [section, key, value] of WEB_STABILITY_CONFIG) {
+        patched = patchIniValue(patched, section, key, value);
+      }
       if (applyMobileTouchDefaults) {
         for (const [section, key, value] of MOBILE_TOUCH_CONFIG) {
           patched = patchIniValue(patched, section, key, value);
@@ -2454,7 +2726,7 @@ function setDriveInfo(auth, cls) {
   if (driveRemoteEl) {
     const s = googleDriveRemoteCache.saves.length;
     const g = googleDriveRemoteCache.games.length;
-    driveRemoteEl.textContent = googleAccessToken ? (s + " saves · " + g + " ISOs") : "\u2014";
+    driveRemoteEl.textContent = googleAccessToken ? (s + " saves · " + g + " games") : "\u2014";
   }
 }
 
@@ -2693,7 +2965,7 @@ async function refreshDriveList() {
   googleDriveRemoteCache.games.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
   renderDriveRemoteList();
   setDriveInfo("Connected", "good");
-  setDriveActivity("Drive ready: " + googleDriveRemoteCache.saves.length + " save bundle(s), " + googleDriveRemoteCache.games.length + " ISO(s)", "ok");
+  setDriveActivity("Drive ready: " + googleDriveRemoteCache.saves.length + " save bundle(s), " + googleDriveRemoteCache.games.length + " game file(s)", "ok");
   updateDriveAutoSyncUI();
 }
 
@@ -2702,11 +2974,11 @@ function renderDriveRemoteList() {
   const saves = googleDriveRemoteCache.saves || [];
   const games = googleDriveRemoteCache.games || [];
   if (!googleAccessToken) {
-    driveRemoteList.innerHTML = `<span class="drive-empty">Connect Google Drive to list remote saves and ISOs.</span>`;
+    driveRemoteList.innerHTML = `<span class="drive-empty">Connect Google Drive to list remote saves and games.</span>`;
     return;
   }
   if (!saves.length && !games.length) {
-    driveRemoteList.innerHTML = `<span class="drive-empty">No Drive files yet. Upload saves or your ISO library.</span>`;
+    driveRemoteList.innerHTML = `<span class="drive-empty">No Drive files yet. Upload saves or your game library.</span>`;
     return;
   }
   let html = "";
@@ -2721,7 +2993,7 @@ function renderDriveRemoteList() {
     }
   }
   if (games.length) {
-    html += `<div class="drive-section-label"><span>ISOs</span><span>${games.length}</span></div>`;
+    html += `<div class="drive-section-label"><span>Games</span><span>${games.length}</span></div>`;
     for (const file of games) {
       html += `<div class="drive-file-row">
         <div class="drive-file-name" title="${esc(file.name)}">${esc(file.name)}</div>
@@ -2817,30 +3089,30 @@ async function restoreDriveSave(file) {
 
 async function uploadGamesToDrive() {
   try {
-    setDriveActivity("Scanning local ISO library…", "run");
+    setDriveActivity("Scanning local game library…", "run");
     await ensureDriveFolders(true);
     const games = await opfsWalk(OPFS_GAMES_DIR, "", false);
     if (!games.length) {
-      setDriveActivity("No local ISOs in OPFS to upload", "warn");
-      showToast("No local ISOs in OPFS to upload");
+      setDriveActivity("No local games in OPFS to upload", "warn");
+      showToast("No local games in OPFS to upload");
       return;
     }
     let done = 0;
     for (const game of games) {
-      setDriveActivity("Uploading ISO " + (done + 1) + "/" + games.length + ": " + game.path, "run");
+      setDriveActivity("Uploading game " + (done + 1) + "/" + games.length + ": " + game.path, "run");
       const bytes = await opfsReadGame(game.path);
       await uploadBlobToDrive(game.path, googleDriveGamesId, bytes, "application/octet-stream",
-        "Uploading ISO " + (done + 1) + "/" + games.length);
+        "Uploading game " + (done + 1) + "/" + games.length);
       done++;
-      log("Google Drive: uploaded ISO " + game.path + " (" + formatBytes(bytes.byteLength) + ").", "ok");
+      log("Google Drive: uploaded game " + game.path + " (" + formatBytes(bytes.byteLength) + ").", "ok");
     }
-    setDriveActivity("Uploaded " + done + " ISO" + (done === 1 ? "" : "s") + " to Drive", "ok");
-    showToast("✓ Uploaded " + done + " ISO" + (done === 1 ? "" : "s") + " to Drive");
+    setDriveActivity("Uploaded " + done + " game" + (done === 1 ? "" : "s") + " to Drive", "ok");
+    showToast("✓ Uploaded " + done + " game" + (done === 1 ? "" : "s") + " to Drive");
     await refreshDriveList();
   } catch(e) {
     const message = googleAuthErrorMessage(e);
-    log("Google Drive ISO upload failed: " + message, "err");
-    setDriveActivity("ISO upload failed: " + message, "bad");
+    log("Google Drive game upload failed: " + message, "err");
+    setDriveActivity("Game upload failed: " + message, "bad");
     showToast("❌ " + message, 5000);
   } finally {
     hideLoading();
@@ -2849,13 +3121,13 @@ async function uploadGamesToDrive() {
 
 async function downloadDriveGame(file) {
   try {
-    setDriveActivity("Preparing ISO download…", "run");
+    setDriveActivity("Preparing game download…", "run");
     await ensureDriveFolders(true);
     showLoading("Downloading " + file.name + " from Drive…");
     setDriveActivity("Downloading " + file.name + "…", "run");
     const bytes = await driveDownloadBytes(file, file.name);
     const storedName = await storeGameBytes(file.name, bytes);
-    log("Google Drive: downloaded ISO " + storedName + " (" + formatBytes(bytes.byteLength) + ").", "ok");
+    log("Google Drive: downloaded game " + storedName + " (" + formatBytes(bytes.byteLength) + ").", "ok");
     setDriveActivity("Downloaded " + storedName + " to OPFS", "ok");
     setStatus("Downloaded " + storedName + " to OPFS", "ok");
     showToast("✓ Downloaded " + storedName);
@@ -2863,8 +3135,8 @@ async function downloadDriveGame(file) {
     updateStorageInfo();
   } catch(e) {
     const message = googleAuthErrorMessage(e);
-    log("Google Drive ISO download failed: " + message, "err");
-    setDriveActivity("ISO download failed: " + message, "bad");
+    log("Google Drive game download failed: " + message, "err");
+    setDriveActivity("Game download failed: " + message, "bad");
     showToast("❌ " + message, 5000);
   } finally {
     hideLoading();
@@ -2873,46 +3145,48 @@ async function downloadDriveGame(file) {
 
 async function downloadAllDriveGames() {
   try {
-    setDriveActivity("Preparing remote ISO downloads…", "run");
+    setDriveActivity("Preparing remote game downloads…", "run");
     await ensureDriveFolders(true);
     if (!googleDriveRemoteCache.games.length) await refreshDriveList();
     const games = googleDriveRemoteCache.games;
     if (!games.length) {
-      setDriveActivity("No remote ISOs found", "warn");
-      showToast("No remote ISOs found");
+      setDriveActivity("No remote games found", "warn");
+      showToast("No remote games found");
       return;
     }
     for (const game of games) await downloadDriveGame(game);
-    setDriveActivity("Downloaded " + games.length + " remote ISO" + (games.length === 1 ? "" : "s"), "ok");
-    showToast("✓ Downloaded " + games.length + " remote ISO" + (games.length === 1 ? "" : "s"));
+    setDriveActivity("Downloaded " + games.length + " remote game" + (games.length === 1 ? "" : "s"), "ok");
+    showToast("✓ Downloaded " + games.length + " remote game" + (games.length === 1 ? "" : "s"));
   } catch(e) {
     const message = googleAuthErrorMessage(e);
-    log("Google Drive bulk ISO download failed: " + message, "err");
-    setDriveActivity("Bulk ISO download failed: " + message, "bad");
+    log("Google Drive bulk game download failed: " + message, "err");
+    setDriveActivity("Bulk game download failed: " + message, "bad");
     showToast("❌ " + message, 5000);
   } finally {
     hideLoading();
   }
 }
 
-/* ── Runtime ISO loading (while PPSSPP is running) ──────────────── */
-async function loadISOAtRuntime(file) {
+/* ── Runtime game loading (while PPSSPP is running) ─────────────── */
+async function loadGameAtRuntime(file) {
   const FS = window.FS;
   if (!FS) { showToast("⚠ Start PPSSPP first"); return; }
   const safe = file.name.replace(/[^a-zA-Z0-9._\-]/g, "_");
   const path = VIRTUAL_GAME_DIR + "/" + safe;
-  log("Loading ISO at runtime: " + file.name + " → " + path, "info");
+  log("Loading game at runtime: " + file.name + " → " + path, "info");
   showToast("Loading " + file.name + "…");
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     try { FS.mkdirTree(VIRTUAL_GAME_DIR); } catch(e) {}
     FS.writeFile(path, bytes);
     await opfsPutGame(file.name, bytes);
-    log("ISO ready at " + path + " and saved to OPFS. Open it from PPSSPP\u2019s game browser (Home \u2192 Games).", "ok");
+    ReadingBridge._bumpScene("runtime-game-mounted");
+    refreshEmulatorGameBrowser("mounted " + safe);
+    log("Game file ready at " + path + " and saved to OPFS. Open it from PPSSPP\u2019s game browser (Home \u2192 Games).", "ok");
     showToast("✓ " + file.name + " loaded → open from PPSSPP game browser", 5000);
     refreshLibrary();
     updateStorageInfo();
-  } catch(e) { log("Runtime ISO load failed: " + e.message, "err"); showToast("❌ " + e.message); }
+  } catch(e) { log("Runtime game load failed: " + e.message, "err"); showToast("❌ " + e.message); }
 }
 
 /* ── AudioWorklet player ────────────────────────────────────────── */
@@ -3111,14 +3385,15 @@ function flushLog() {
 }
 
 function renderLog() {
+  if (!logEl) return;
   const ft = filterText.toLowerCase();
   const vis = ft ? logLines.filter(e => e.raw.toLowerCase().includes(ft)) : logLines;
   logEl.innerHTML = vis.map(e => e.html).join("\n") + "\n";
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-logFilter.addEventListener("input", () => { filterText = logFilter.value.trim(); renderLog(); });
-document.getElementById("clearLogBtn").addEventListener("click", () => { logLines = []; pendingLines = []; logEl.innerHTML = ""; });
+on(logFilter, "input", () => { filterText = logFilter.value.trim(); renderLog(); });
+on("clearLogBtn", "click", () => { logLines = []; pendingLines = []; if (logEl) logEl.innerHTML = ""; });
 
 function log(text, level) {
   const ts  = new Date().toLocaleTimeString("en-GB", { hour12: false });
@@ -3131,8 +3406,8 @@ function log(text, level) {
 
 /* ── Status ─────────────────────────────────────────────────────── */
 function setStatus(text, kind) {
-  statusEl.textContent = text;
-  statusDot.className  = "status-dot" + (kind ? " " + kind : "");
+  if (statusEl) statusEl.textContent = text;
+  if (statusDot) statusDot.className = "status-dot" + (kind ? " " + kind : "");
   // also update the always-visible stage overlay
   if (stageMiniTextEl) stageMiniTextEl.textContent = text;
   if (stageDotEl) stageDotEl.className = "stage-dot" + (kind ? " " + kind : "");
@@ -3140,14 +3415,14 @@ function setStatus(text, kind) {
 }
 
 function showLoading(label, progress) {
-  loadOverlay.classList.add("visible");
-  loadLabel.textContent = label;
-  progressBar.style.width = (progress != null && progress >= 0) ? (progress * 100).toFixed(1) + "%" : "0%";
+  loadOverlay?.classList.add("visible");
+  if (loadLabel) loadLabel.textContent = label;
+  if (progressBar) progressBar.style.width = (progress != null && progress >= 0) ? (progress * 100).toFixed(1) + "%" : "0%";
 }
 function hideLoading() {
-  loadOverlay.classList.remove("visible");
-  progressBar.style.width = "0%";
-  loadLabel.textContent = "";
+  loadOverlay?.classList.remove("visible");
+  if (progressBar) progressBar.style.width = "0%";
+  if (loadLabel) loadLabel.textContent = "";
 }
 
 /* ── System info panel ──────────────────────────────────────────── */
@@ -3648,6 +3923,7 @@ function shortGamepadName(id) {
 }
 
 function updateGamepadBadge() {
+  if (!gamepadBadge) return;
   const n = connectedGamepads.size;
   if (n === 0) { gamepadBadge.textContent = "\uD83C\uDFAE No controller"; gamepadBadge.className = "badge"; }
   else {
@@ -3661,6 +3937,10 @@ function updateGamepadBadge() {
 }
 
 function updateGamepadSelector() {
+  if (!gamepadSelect) {
+    updateGamepadBadge();
+    return;
+  }
   const previous = String(activeGamepadIndex);
   gamepadSelect.innerHTML = "";
 
@@ -3700,10 +3980,11 @@ function setActiveGamepadIndex(index, source = "selector") {
   updateGamepadSelector();
   reconnectKnownGamepadsForSDL("controller select", true);
   redispatchSelectedGamepadConnection("controller select");
-  canvas.focus();
+  canvas?.focus();
 }
 
 function flashGamepadBadge() {
+  if (!gamepadBadge) return;
   gamepadBadge.style.transition = "none";
   gamepadBadge.style.outline    = "2px solid var(--accent)";
   setTimeout(() => { gamepadBadge.style.transition = ""; gamepadBadge.style.outline = ""; }, 800);
@@ -3802,7 +4083,7 @@ function reconnectKnownGamepadsForSDL(reason, force = false) {
     if (dispatchSDLGamepadReconnect(gp, reason, force)) n++;
   }
   if (n > 0) {
-    canvas.focus();
+    canvas?.focus();
     flashGamepadBadge();
   }
   return n;
@@ -3819,7 +4100,7 @@ function startSmartGamepadPolling() {
 function onGamepadConnected(e) {
   const gp = e.gamepad;
   rememberGamepad(gp, e.__ppssppSynthetic ? "refreshed" : "connected", { refreshSDL: false });
-  canvas.focus();
+  canvas?.focus();
 }
 function onGamepadDisconnected(e) {
   const gp = e.gamepad; connectedGamepads.delete(gp.index);
@@ -3847,15 +4128,15 @@ function showGamepadDiag() {
   if (!found) log("GAMEPAD: no controller detected — press a button on your controller first.", "warn");
 }
 
-gamepadSelect.addEventListener("change", () => {
+on(gamepadSelect, "change", () => {
   const index = Number(gamepadSelect.value);
   setActiveGamepadIndex(Number.isInteger(index) ? index : -1);
 });
-gamepadSelect.addEventListener("pointerdown", () => {
+on(gamepadSelect, "pointerdown", () => {
   probeExistingGamepads();
   reconnectKnownGamepadsForSDL("controller menu", false);
 });
-gamepadSelect.addEventListener("focus", () => {
+on(gamepadSelect, "focus", () => {
   probeExistingGamepads();
 });
 window.addEventListener("focus", () => {
@@ -3876,7 +4157,11 @@ function probeWebGLFeaturesWithPref(powerPreference) {
   setInfoVal("iWebgl2", gl ? "yes" : "no", gl ? "good" : "bad");
   if (!gl) {
     log("WebGL2 unavailable — GLES3/WebGL2 rendering cannot start.", "err");
-    gpuBadge.textContent = "\uD83D\uDDA5 No WebGL2"; gpuBadge.className = "badge error"; return;
+    if (gpuBadge) {
+      gpuBadge.textContent = "\uD83D\uDDA5 No WebGL2";
+      gpuBadge.className = "badge error";
+    }
+    return;
   }
   const dbg      = gl.getExtension("WEBGL_debug_renderer_info");
   const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
@@ -3914,14 +4199,16 @@ function probeWebGLFeaturesWithPref(powerPreference) {
                           typeof SharedArrayBuffer !== "undefined" ? "good" : "bad");
 
   const short = renderer.replace(/\(.*?\)/g,"").trim().slice(0,32);
-  gpuBadge.textContent = "\uD83D\uDDA5 " + short;
-  gpuBadge.className   = "badge active";
-  gpuBadge.title       = "[" + powerPreference + "]\n" + renderer + "\n" + vendor + "\n" + version + "\nGLSL: " + glslVer + "\nMaxTex: " + maxTex + "  MaxAniso: " + maxAniso + "\nstencil_texturing: " + hasStencil + "  multi_draw: " + hasMultiDraw;
+  if (gpuBadge) {
+    gpuBadge.textContent = "\uD83D\uDDA5 " + short;
+    gpuBadge.className   = "badge active";
+    gpuBadge.title       = "[" + powerPreference + "]\n" + renderer + "\n" + vendor + "\n" + version + "\nGLSL: " + glslVer + "\nMaxTex: " + maxTex + "  MaxAniso: " + maxAniso + "\nstencil_texturing: " + hasStencil + "  multi_draw: " + hasMultiDraw;
+  }
 }
 
 function probeWebGLFeatures() { probeWebGLFeaturesWithPref(gpuSelectEl?.value || "high-performance"); }
 
-gpuSelectEl.addEventListener("change", () => {
+on(gpuSelectEl, "change", () => {
   log('GPU selector changed to "' + gpuSelectEl.value + '" — re-probing WebGL...');
   probeWebGLFeaturesWithPref(gpuSelectEl.value);
 });
@@ -3929,6 +4216,45 @@ gpuSelectEl.addEventListener("change", () => {
 /* ── Error handlers ─────────────────────────────────────────────── */
 window.addEventListener("error",             (e) => log("JS ERROR: " + (e.message || e.error || "unknown"), "err"));
 window.addEventListener("unhandledrejection",(e) => log("PROMISE ERROR: " + (e.reason?.stack || e.reason || "unknown"), "err"));
+
+const COI_RELOAD_KEY = "ppsspp-coi-reload-count";
+
+async function reloadForCrossOriginIsolation(reason) {
+  if (window.crossOriginIsolated) {
+    sessionStorage.removeItem(COI_RELOAD_KEY);
+    return true;
+  }
+
+  const attempts = Number(sessionStorage.getItem(COI_RELOAD_KEY) || "0");
+  if (attempts >= 3) {
+    log("Cross-origin isolation still unavailable after reload attempts. SharedArrayBuffer cannot be used on this page.", "err");
+    setStatus("SharedArrayBuffer unavailable. Reload the page or clear site data.", "err");
+    hideLoading();
+    setStartButtonMode("idle");
+    return false;
+  }
+
+  if (!("serviceWorker" in navigator)) {
+    log("Service workers are unavailable, cannot synthesize COOP/COEP headers for GitHub Pages.", "err");
+    setStatus("This browser cannot enable SharedArrayBuffer for GitHub Pages.", "err");
+    return false;
+  }
+
+  sessionStorage.setItem(COI_RELOAD_KEY, String(attempts + 1));
+  log("Cross-origin isolation required for WASM threads; reloading through service worker" + (reason ? " (" + reason + ")" : "") + ".", "warn");
+  setStatus("Preparing SharedArrayBuffer isolation\u2026", "run");
+  showLoading("Preparing secure runtime\u2026");
+
+  try {
+    await navigator.serviceWorker.register("sw.js", { scope: "./" });
+    await navigator.serviceWorker.ready;
+  } catch(e) {
+    log("SW registration before isolation reload failed: " + (e?.message || e), "warn");
+  }
+
+  location.reload();
+  return false;
+}
 
 /* ── Asset / game loading ───────────────────────────────────────── */
 function dirname(p) { const s = p.lastIndexOf("/"); return s === -1 ? "" : p.slice(0, s); }
@@ -3975,28 +4301,77 @@ async function preloadAssets(FS) {
 }
 
 async function preloadStoredGames(FS) {
-  const games = await opfsWalk(OPFS_GAMES_DIR);
+  const games = await opfsWalk(OPFS_GAMES_DIR, "", false);
   if (!games.length) {
-    log("OPFS games: no stored ISO files.", "dim");
+    log("OPFS games: no stored game files.", "dim");
     return 0;
   }
 
   FS.mkdirTree(VIRTUAL_GAME_DIR);
+  const favorites = prunePreloadFavorites(games.map(game => game.path)).filter(name => name !== selectedStoredGame);
+  if (!favorites.length) {
+    log("OPFS games: " + games.length + " stored file(s) available. No startup preload games selected.", "ok");
+    return 0;
+  }
+
   let ok = 0;
-  for (const { path, data, size } of games) {
-    const target = VIRTUAL_GAME_DIR + "/" + path;
+  let bytesMounted = 0;
+  for (const name of favorites) {
+    const target = VIRTUAL_GAME_DIR + "/" + name;
     try {
-      setStatus("Restoring ISO " + (ok + 1) + "/" + games.length + ": " + path, "run");
-      showLoading("Restoring ISO: " + path);
+      setStatus("Preloading game " + (ok + 1) + "/" + favorites.length + ": " + name, "run");
+      showLoading("Preloading game: " + name);
+      const data = await opfsReadGame(name);
       FS.writeFile(target, data);
       ok++;
-      log("OPFS game mounted: " + target + " (" + formatBytes(size || data?.byteLength || 0) + ")", "ok");
+      bytesMounted += data.byteLength || 0;
+      log("Startup preload mounted: " + target + " (" + formatBytes(data.byteLength || 0) + ")", "ok");
     } catch(e) {
-      log("OPFS game restore failed " + path + ": " + e.message, "warn");
+      log("Startup preload failed " + name + ": " + e.message, "warn");
     }
   }
-  log("OPFS games: mounted " + ok + "/" + games.length + " stored file(s) into " + VIRTUAL_GAME_DIR + ".", "ok");
+  log("OPFS games: preloaded " + ok + "/" + favorites.length + " game file(s) into " + VIRTUAL_GAME_DIR + " (" + formatBytes(bytesMounted) + ").", "ok");
   return ok;
+}
+
+let fastGameMountSeq = 0;
+function makeWorkerFsGameFile(file, safeName) {
+  if (!file || file.name === safeName || typeof File !== "function") return file;
+  return new File([file], safeName, {
+    type: file.type || "application/octet-stream",
+    lastModified: file.lastModified || Date.now(),
+  });
+}
+
+function mountGameFileFast(FS, file, safeName, label) {
+  const workerFS = globalThis.WORKERFS || window.WORKERFS;
+  if (!workerFS || !FS?.mount) return null;
+
+  const mountFile = makeWorkerFsGameFile(file, safeName);
+  const mountDir = VIRTUAL_GAME_DIR + "/.fast-" + (++fastGameMountSeq);
+  try {
+    FS.mkdirTree(VIRTUAL_GAME_DIR);
+    FS.mkdirTree(mountDir);
+    FS.mount(workerFS, { files: [mountFile] }, mountDir);
+    const path = mountDir + "/" + mountFile.name;
+    log("Fast-mounted game via WORKERFS" + (label ? " (" + label + ")" : "") + ": " + path, "ok");
+    return path;
+  } catch(e) {
+    log("Fast game mount failed, falling back to MEMFS: " + e.message, "warn");
+    try { if (FS.analyzePath?.(mountDir)?.exists) FS.rmdir(mountDir); } catch(_) {}
+    return null;
+  }
+}
+
+function persistSelectedGameInBackground(file) {
+  if (!file) return;
+  (async () => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    await opfsPutGame(file.name, bytes);
+    log("Game saved to OPFS after fast mount: " + file.name, "ok");
+    refreshLibrary();
+    updateStorageInfo();
+  })().catch(e => log("Could not persist fast-mounted game in OPFS: " + e.message, "warn"));
 }
 
 async function preloadGame(FS) {
@@ -4005,15 +4380,30 @@ async function preloadGame(FS) {
   const sourceName = selectedGame ? selectedGame.name : selectedStoredGame;
   const safe = sourceName.replace(/[^a-zA-Z0-9._-]/g, "_");
   const path = VIRTUAL_GAME_DIR + "/" + safe;
-  setStatus("Loading ROM into memory: " + sourceName, "run");
-  showLoading("Loading ROM: " + sourceName);
+  setStatus("Fast loading game: " + sourceName, "run");
+  showLoading("Fast loading game: " + sourceName);
+
+  if (selectedGame) {
+    const fastPath = mountGameFileFast(FS, selectedGame, safe, "selected file");
+    if (fastPath) {
+      persistSelectedGameInBackground(selectedGame);
+      return fastPath;
+    }
+  } else if (selectedStoredGame) {
+    const storedFile = await opfsGetGameFile(selectedStoredGame);
+    const fastPath = mountGameFileFast(FS, storedFile, safe, "OPFS");
+    if (fastPath) return fastPath;
+  }
+
+  setStatus("Loading game into memory: " + sourceName, "run");
+  showLoading("Loading game: " + sourceName);
   const bytes = selectedGame
     ? new Uint8Array(await selectedGame.arrayBuffer())
     : await opfsReadGame(selectedStoredGame);
   FS.writeFile(path, bytes);
   try { if (selectedGame) await opfsPutGame(selectedGame.name, bytes); }
-  catch(e) { log("Could not persist ROM in OPFS: " + e.message, "warn"); }
-  log("ROM mounted in MEMFS" + (selectedGame ? " and saved to OPFS" : " from OPFS") + ": " + path, "ok");
+  catch(e) { log("Could not persist game in OPFS: " + e.message, "warn"); }
+  log("Game mounted in MEMFS" + (selectedGame ? " and saved to OPFS" : " from OPFS") + ": " + path, "ok");
   return path;
 }
 
@@ -4046,7 +4436,12 @@ let fpsFrames = 0, fpsLast = performance.now();
   if (now - fpsLast >= 1000) {
     const fps = Math.round(fpsFrames * 1000 / (now - fpsLast));
     fpsFrames = 0; fpsLast = now;
-    if (started) { fpsBadge.style.display = "block"; fpsBadge.textContent = fps + " FPS"; }
+    if (started && fpsBadge && !fullscreenElement()) {
+      fpsBadge.style.display = "block";
+      fpsBadge.textContent = fps + " FPS";
+    } else if (fpsBadge) {
+      fpsBadge.style.display = "none";
+    }
   }
   requestAnimationFrame(tickFps);
 })();
@@ -4054,13 +4449,24 @@ let fpsFrames = 0, fpsLast = performance.now();
 /* ── Launch ─────────────────────────────────────────────────────── */
 async function start() {
   if (started) return;
+  if (!canvas) {
+    setStatus("Runtime UI is not ready: canvas element missing", "err");
+    return;
+  }
+  if (!window.crossOriginIsolated || typeof SharedArrayBuffer === "undefined") {
+    await reloadForCrossOriginIsolation("launch");
+    return;
+  }
+  sessionStorage.removeItem(COI_RELOAD_KEY);
   started = true;
+  ReadingBridge._started();
   document.body.classList.add("emulator-started");
   log("Launch button clicked.", "info");
   setStartButtonMode("loading");
-  fileLabel.classList.add("disabled"); fileInput.disabled = true;
-  gpuSelectEl.disabled = true;
-  canvas.focus();
+  fileLabel?.classList.add("disabled");
+  if (fileInput) fileInput.disabled = true;
+  if (gpuSelectEl) gpuSelectEl.disabled = true;
+  canvas?.focus();
   showLoading("Initializing audio\u2026");
   await selectBuildDir();
 
@@ -4076,7 +4482,7 @@ async function start() {
   } catch(e) { log("AUDIO: pre-init AudioContext failed: " + (e?.message || e), "warn"); }
 
   let gameArg = null;
-  const chosenPowerPref = gpuSelectEl.value;
+  const chosenPowerPref = gpuSelectEl?.value || "high-performance";
   log('GPU powerPreference: "' + chosenPowerPref + '"', "info");
   if (localStorage.getItem("ppsspp_touch_mouse_fallback") === "1") {
     installTouchMouseShim();
@@ -4087,14 +4493,16 @@ async function start() {
     webglContextAttributes: {
       powerPreference: chosenPowerPref,
       alpha: false, antialias: false, depth: true, stencil: true,
-      preserveDrawingBuffer: false, desynchronized: true,
+      // OCR capture fallback: opt-in only, see wasm-page/src/app/ocr/ocr-frame-source.ts.
+      preserveDrawingBuffer: localStorage.getItem("ppsspp_ocr_preserve_drawing_buffer") === "1",
+      desynchronized: true,
       failIfMajorPerformanceCaveat: false,
     },
     SDL2: preAudioCtx ? { audioContext: preAudioCtx } : {},
     arguments: [],
     locateFile(path) {
       let url = BUILD_DIR + path;
-      if (path.endsWith(".wasm") || path.endsWith(".worker.js")) url += "?v=" + BUILD_STAMP;
+      if (path.endsWith(".wasm") || path.endsWith(".worker.js") || path.endsWith(".data")) url += "?v=" + BUILD_STAMP;
       log("locateFile: " + path + " -> " + url);
       return url;
     },
@@ -4140,11 +4548,13 @@ async function start() {
     onRuntimeInitialized() {
       log("Runtime initialized.", "ok");
       runtimeReady = true;
+      ReadingBridge._setGame(gameArg);
+      ReadingBridge._setPhase("running");
       setStatus(gameArg ? "Game running" : "Library ready", "ok");
       hideLoading();
-      setStartButtonMode("pause");
-      // Show runtime ISO loader button
-      document.getElementById("runtimeIsoLabel").style.display = "";
+      setStartButtonMode("running");
+      // Show runtime game loader button
+      if (runtimeGameLabel) runtimeGameLabel.style.display = "";
       // Start auto-persist loop (every 30s)
       startAutoPersist();
       updateStorageInfo();
@@ -4162,6 +4572,7 @@ async function start() {
       log("Runtime abort: " + reason, "err");
       setStatus("Abort: " + reason, "err");
       runtimeReady = false;
+      ReadingBridge._setPhase("aborted");
       hideLoading();
     }
   };
@@ -4260,64 +4671,64 @@ function installTouchMouseShim() {
 }
 
 /* ── Event wiring ───────────────────────────────────────────────── */
-fileInput.addEventListener("change", () => {
-  selectedGame = fileInput.files[0] || null;
+on(fileInput, "change", () => {
+  selectedGame = fileInput?.files?.[0] || null;
   selectedStoredGame = null;
-  fileLabel.title = selectedGame ? selectedGame.name : "Launch ROM";
+  if (fileLabel) fileLabel.title = selectedGame ? selectedGame.name : "Open game";
   // Update the visible text node inside the label
-  const textNode = fileLabel.firstChild;
+  const textNode = fileLabel?.firstChild;
   if (textNode && textNode.nodeType === 3)
-    textNode.textContent = (selectedGame ? "\uD83D\uDCC2 " + selectedGame.name : "\uD83D\uDCC2 Open ROM") + " ";
+    textNode.textContent = (selectedGame ? "\uD83D\uDCC2 " + selectedGame.name : "\uD83D\uDCC2 Open Game") + " ";
   updateIdleOverlay();
-  setStatus(selectedGame ? "Selected: " + selectedGame.name : "Ready. Open a ROM or use Library.");
+  setStatus(selectedGame ? "Selected: " + selectedGame.name : "Ready. Open a game file or use Library.");
 });
 
-startBtn.addEventListener("click", () => {
-  if (started) openPPSSPPPauseMenu();
-  else start();
+on(startBtn, "click", () => {
+  start();
 });
-idleStartBtn.addEventListener("click", start);
+on(idleStartBtn, "click", start);
 
-document.getElementById("refreshLibraryBtn").addEventListener("click", refreshLibrary);
-document.getElementById("libraryGrid").addEventListener("click", e => {
+on("refreshLibraryBtn", "click", refreshLibrary);
+on("libraryGrid", "click", e => {
   const button = e.target.closest("button[data-action]");
   if (!button) return;
   const name = button.dataset.game;
   if (!name) return;
   if (button.dataset.action === "play") playOrMountStoredGame(name);
+  else if (button.dataset.action === "favorite") togglePreloadFavorite(name);
   else if (button.dataset.action === "info") showGameInfo(name);
   else if (button.dataset.action === "drive-upload") runDriveAction("upload-game", () => uploadSingleGameToDrive(name));
   else if (button.dataset.action === "delete") deleteStoredFile(VIRTUAL_GAME_DIR + "/" + name);
 });
-document.getElementById("libraryImportFile").addEventListener("change", e => {
+on("libraryImportFile", "change", e => {
   const f = e.target.files[0]; if (!f) return;
   e.target.value = "";
   addGameToLibrary(f);
 });
-document.getElementById("libraryDownloadUrlBtn").addEventListener("click", () => {
-  addGameURLToLibrary(document.getElementById("libraryUrlInput").value);
+on("libraryDownloadUrlBtn", "click", () => {
+  addGameURLToLibrary(byId("libraryUrlInput")?.value || "");
 });
-document.getElementById("libraryUrlInput").addEventListener("keydown", e => {
+on("libraryUrlInput", "keydown", e => {
   if (e.key !== "Enter") return;
   e.preventDefault();
   addGameURLToLibrary(e.currentTarget.value);
 });
-document.getElementById("gameInfoCloseBtn").addEventListener("click", closeGameInfo);
-document.getElementById("gameInfoModal").addEventListener("click", e => {
+on("gameInfoCloseBtn", "click", closeGameInfo);
+on("gameInfoModal", "click", e => {
   if (e.target.id === "gameInfoModal") closeGameInfo();
 });
 
-// ── Runtime ISO loading ──────────────────────────────────────────
-document.getElementById("runtimeIsoFile").addEventListener("change", e => {
+// ── Runtime game loading ─────────────────────────────────────────
+runtimeGameInput?.addEventListener("change", e => {
   const f = e.target.files[0]; if (!f) return;
   e.target.value = "";
-  loadISOAtRuntime(f);
+  loadGameAtRuntime(f);
 });
 
 // ── Saves tab buttons ─────────────────────────────────────────────
-document.getElementById("refreshSavesBtn").addEventListener("click", refreshSavesTab);
-document.getElementById("exportAllSavesBtn").addEventListener("click", exportSaves);
-document.getElementById("savesList").addEventListener("click", async e => {
+on("refreshSavesBtn", "click", refreshSavesTab);
+on("exportAllSavesBtn", "click", exportSaves);
+on("savesList", "click", async e => {
   const button = e.target.closest("button[data-save-action]");
   if (!button) return;
   const action = button.dataset.saveAction;
@@ -4340,13 +4751,13 @@ document.getElementById("savesList").addEventListener("click", async e => {
     log("Save action failed: " + (err?.message || err), "err");
   }
 });
-document.getElementById("importSaveSlotFile").addEventListener("change", e => {
+on("importSaveSlotFile", "change", e => {
   const f = e.target.files[0]; if (!f) return;
   importSaveSlot(f); e.target.value = "";
 });
-document.getElementById("deleteAllSavesBtn").addEventListener("click", async () => {
+on("deleteAllSavesBtn", "click", async () => {
   if (!confirm("Delete ALL save data and save states?\nThis cannot be undone.")) return;
-  // Delete only save-related OPFS entries (not config files or ISOs)
+  // Delete only save-related OPFS entries (not config files or games)
   const all = await opfsWalk();
   for (const { path } of all) {
     const isSave = SAVE_SUBDIRS.some(sub => path.includes("/" + sub.dir + "/"));
@@ -4379,16 +4790,16 @@ document.getElementById("deleteAllSavesBtn").addEventListener("click", async () 
 });
 
 // ── Storage panel buttons ────────────────────────────────────────
-document.getElementById("syncNowBtn").addEventListener("click", async () => {
+on("syncNowBtn", "click", async () => {
   const FS = window.FS;
   if (!FS) { showToast("⚠ Start PPSSPP first"); return; }
   await persistFiles(FS, "manual");
   showToast("✓ Synced to OPFS");
 });
 
-document.getElementById("exportSavesBtn").addEventListener("click", exportSaves);
+on("exportSavesBtn", "click", exportSaves);
 
-document.getElementById("importSavesFile").addEventListener("change", e => {
+on("importSavesFile", "change", e => {
   const f = e.target.files[0]; if (!f) return;
   e.target.value = "";
   importSaves(f);
@@ -4412,7 +4823,7 @@ window.addEventListener("storage", e => {
     disconnectGoogleDrive();
   }
 });
-document.getElementById("saveGoogleClientIdBtn").addEventListener("click", () => {
+on("saveGoogleClientIdBtn", "click", () => {
   const value = (googleClientIdInput?.value || "").trim();
   if (value) localStorage.setItem(GOOGLE_CLIENT_ID_KEY, value);
   else localStorage.removeItem(GOOGLE_CLIENT_ID_KEY);
@@ -4422,17 +4833,19 @@ document.getElementById("saveGoogleClientIdBtn").addEventListener("click", () =>
   setDriveInfo(value ? "Client ID saved" : "Client ID cleared", value ? "good" : "");
   showToast(value ? "Google client ID saved" : "Google client ID cleared");
 });
-document.getElementById("toggleGoogleClientIdBtn").addEventListener("click", () => {
+on("toggleGoogleClientIdBtn", "click", () => {
   if (!googleClientIdInput) return;
   const visible = googleClientIdInput.type === "text";
   googleClientIdInput.type = visible ? "password" : "text";
-  const button = document.getElementById("toggleGoogleClientIdBtn");
-  button.title = visible ? "Show client ID" : "Hide client ID";
-  button.textContent = visible ? "\uD83D\uDC41" : "\u25CF";
+  const button = byId("toggleGoogleClientIdBtn");
+  if (button) {
+    button.title = visible ? "Show client ID" : "Hide client ID";
+    button.textContent = visible ? "\uD83D\uDC41" : "\u25CF";
+  }
 });
-document.getElementById("driveConnectBtn").addEventListener("click", connectGoogleDrive);
-document.getElementById("driveDisconnectBtn").addEventListener("click", disconnectGoogleDrive);
-document.getElementById("driveRefreshBtn").addEventListener("click", async () => {
+on("driveConnectBtn", "click", connectGoogleDrive);
+on("driveDisconnectBtn", "click", disconnectGoogleDrive);
+on("driveRefreshBtn", "click", async () => {
   try { await runDriveAction("refresh", refreshDriveList); showToast("✓ Drive refreshed"); }
   catch(e) {
     const message = googleAuthErrorMessage(e);
@@ -4441,18 +4854,18 @@ document.getElementById("driveRefreshBtn").addEventListener("click", async () =>
     showToast("❌ " + message, 5000);
   }
 });
-document.getElementById("driveUploadSavesBtn").addEventListener("click", () => runDriveAction("upload-saves", uploadSavesToDrive));
-document.getElementById("driveRestoreSavesBtn").addEventListener("click", () => runDriveAction("restore-saves", () => restoreDriveSave()));
-document.getElementById("driveUploadGamesBtn").addEventListener("click", () => runDriveAction("upload-games", uploadGamesToDrive));
-document.getElementById("driveDownloadGamesBtn").addEventListener("click", () => runDriveAction("download-games", downloadAllDriveGames));
+on("driveUploadSavesBtn", "click", () => runDriveAction("upload-saves", uploadSavesToDrive));
+on("driveRestoreSavesBtn", "click", () => runDriveAction("restore-saves", () => restoreDriveSave()));
+on("driveUploadGamesBtn", "click", () => runDriveAction("upload-games", uploadGamesToDrive));
+on("driveDownloadGamesBtn", "click", () => runDriveAction("download-games", downloadAllDriveGames));
 
 // Drive auto-sync controls
-document.getElementById("driveAutoSyncToggle").addEventListener("change", e => {
+on("driveAutoSyncToggle", "change", e => {
   localStorage.setItem(GOOGLE_AUTO_SYNC_KEY, e.target.checked ? "1" : "0");
   restartDriveAutoSyncTimer();
   showToast(e.target.checked ? "✓ Drive auto-sync enabled" : "Drive auto-sync disabled");
 });
-document.getElementById("driveAutoSyncInterval").addEventListener("change", e => {
+on("driveAutoSyncInterval", "change", e => {
   localStorage.setItem(GOOGLE_AUTO_SYNC_RATE_KEY, e.target.value);
   restartDriveAutoSyncTimer();
 });
@@ -4474,8 +4887,8 @@ driveRemoteList?.addEventListener("click", e => {
   }
 });
 
-document.getElementById("clearStorageBtn").addEventListener("click", async () => {
-  if (!confirm("Delete ALL saved data and stored ISOs from OPFS? This cannot be undone.")) return;
+on("clearStorageBtn", "click", async () => {
+  if (!confirm("Delete ALL saved data and stored games from OPFS? This cannot be undone.")) return;
   await opfsClearAll();
   _lastPersistTime = 0;
   refreshLibrary();
@@ -4499,36 +4912,95 @@ function _hideCursor() { document.body.classList.add("fs-cursor-hidden"); }
 function _showCursor() {
   document.body.classList.remove("fs-cursor-hidden");
   clearTimeout(_fsCursorTimer);
-  if (document.fullscreenElement) _fsCursorTimer = setTimeout(_hideCursor, 2000);
+  if (fullscreenElement()) _fsCursorTimer = setTimeout(_hideCursor, 2000);
 }
-document.addEventListener("fullscreenchange", () => {
-  setTimeout(notifyRuntimeResize, 80);
-  if (document.fullscreenElement) {
-    // entered fullscreen — hide cursor after 2 s
+
+function isFullscreenActive() {
+  return !!fullscreenElement();
+}
+
+function fullscreenTarget() {
+  return stageEl || canvas || document.documentElement;
+}
+
+async function requestBrowserFullscreen() {
+  const target = fullscreenTarget();
+  if (!target) return false;
+
+  try {
+    if (target.requestFullscreen) {
+      await target.requestFullscreen({ navigationUI: "hide" });
+      return true;
+    }
+    if (target.webkitRequestFullscreen) {
+      target.webkitRequestFullscreen();
+      return true;
+    }
+  } catch(e) {
+    log("Browser fullscreen request failed: " + (e?.message || e), "warn");
+  }
+  return false;
+}
+
+async function exitBrowserFullscreen() {
+  try {
+    if (document.exitFullscreen) {
+      await document.exitFullscreen();
+      return true;
+    }
+    if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+      return true;
+    }
+  } catch(e) {
+    log("Browser fullscreen exit failed: " + (e?.message || e), "warn");
+  }
+  return false;
+}
+
+function handleFullscreenChange() {
+  syncFullscreenOverlays();
+  scheduleRuntimeResize(true);
+  if (fullscreenElement()) {
     _fsCursorTimer = setTimeout(_hideCursor, 2000);
     document.addEventListener("mousemove", _showCursor);
     document.addEventListener("pointerdown", _showCursor);
   } else {
-    // exited fullscreen — always show cursor
     clearTimeout(_fsCursorTimer);
     document.body.classList.remove("fs-cursor-hidden");
     document.removeEventListener("mousemove", _showCursor);
     document.removeEventListener("pointerdown", _showCursor);
   }
-});
+}
 
-function togglePPSSPPFullscreen() {
+document.addEventListener("fullscreenchange", handleFullscreenChange);
+document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+
+async function togglePPSSPPFullscreen() {
+  if (isFullscreenActive()) {
+    if (await exitBrowserFullscreen()) {
+      scheduleRuntimeResize(true);
+      return;
+    }
+  }
+
+  if (await requestBrowserFullscreen()) {
+    scheduleRuntimeResize(true);
+    return;
+  }
+
   const toggleFullscreen = window.Module?._PPSSPP_ToggleFullscreen;
   if (typeof toggleFullscreen !== "function") {
     log("Fullscreen toggle requested before PPSSPP runtime is ready.", "warn");
     return;
   }
   toggleFullscreen();
+  scheduleRuntimeResize(true);
 }
 
-fullscreenBtn.addEventListener("click", () => {
-  togglePPSSPPFullscreen();
-  canvas.focus();
+on(fullscreenBtn, "click", async () => {
+  await togglePPSSPPFullscreen();
+  canvas?.focus();
   describeAudio();
 });
 
@@ -4543,17 +5015,13 @@ refreshSavesTab();      // populate Saves tab from OPFS on load (no FS needed)
 
 /* ── PWA: Service Worker registration ──────────────────────────── */
 if ("serviceWorker" in navigator) {
-  const coiReloadKey = "ppsspp-coi-reload";
-  const reloadForCrossOriginIsolation = () => {
-    if (window.crossOriginIsolated || sessionStorage.getItem(coiReloadKey) === "1") return;
-    sessionStorage.setItem(coiReloadKey, "1");
-    location.reload();
-  };
-  navigator.serviceWorker.addEventListener("controllerchange", reloadForCrossOriginIsolation);
+  navigator.serviceWorker.addEventListener("controllerchange", () => reloadForCrossOriginIsolation("controllerchange"));
   navigator.serviceWorker.register("sw.js", { scope: "./" })
     .then(reg => {
       log("SW registered (scope: " + reg.scope + ")", "ok");
-      if (navigator.serviceWorker.controller) reloadForCrossOriginIsolation();
+      if (navigator.serviceWorker.controller && !window.crossOriginIsolated) {
+        reloadForCrossOriginIsolation("existing controller");
+      }
       reg.addEventListener("updatefound", () => {
         const sw = reg.installing;
         sw?.addEventListener("statechange", () => {

@@ -1,0 +1,43 @@
+name: OCR layer — tests and build
+
+# Lightweight CI for the Angular shell + OCR reading layer. Does not build the
+# emulator (see wasm-pages.yml); verifies unit tests, OCR asset export from the
+# pinned lockfile, and the production Pages-style build.
+on:
+  push:
+    branches: [main, ocr-reading-layer, wasm]
+  pull_request:
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: wasm-page/package-lock.json
+      - run: npm --prefix wasm-page ci
+      - run: npm --prefix wasm-page test
+      - name: Export pinned OCR models + matching ONNX Runtime files
+        run: npm --prefix wasm-page run ocr:export-assets
+      - name: Production build (relative base href, as on Pages)
+        run: npm --prefix wasm-page run build:pages
+      - name: Verify OCR assets and worker chunk in dist
+        run: |
+          test -f wasm-page/dist/ppsspp-web/ocr-assets/manifest.json
+          test -f wasm-page/dist/ppsspp-web/ocr-assets/ort-wasm-simd-threaded.wasm
+          ls wasm-page/dist/ppsspp-web/worker-*.js
+          node --check wasm-page/dist/ppsspp-web/sw.js
+      - name: Browser smoke (bridge, consent, model init, input gate, cache reload)
+        run: |
+          cd wasm-page
+          npx ng build --configuration development
+          npm i --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+          node scripts/smoke-ocr.mjs
+      - name: Emulator E2E (real PPSSPP WASM, Japanese menu, OCR → DOM text)
+        run: |
+          cd wasm-page
+          node scripts/e2e-emulator.mjs

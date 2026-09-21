@@ -9,7 +9,7 @@ services:
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - .:/app
-      - ../ppsspp-wasm:/wasm:ro
+      - ${WASM_ROOT:-./deps/ppsspp-wasm}:/wasm:ro
     working_dir: /app/server
     command:
       - python3

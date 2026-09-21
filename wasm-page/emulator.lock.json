@@ -1,0 +1,9 @@
+{
+  "comment": "Prebuilt PPSSPP WASM emulator used by the GitHub Pages deployment when no local wasm-release build is present. Published by the upstream project (root-hunter/ppsspp-web Pages, PPSSPP 1.20.4-wasm); pinned by SHA-256 so a silent upstream change fails the build instead of shipping unknown binaries. Regenerate with: node scripts/fetch-emulator.mjs --write-lock",
+  "baseUrl": "https://root-hunter.github.io/ppsspp-web/build-wasm/",
+  "files": [
+    { "name": "PPSSPPSDL.js",   "sha256": "c2850de1dfa601439b69cc28a83b0ed11ebb1312ed54fa711edd672d21eddd2f", "bytes": 354611 },
+    { "name": "PPSSPPSDL.wasm", "sha256": "01d1538937e27ab56cb73f149fda2434053a0a619df260cf8280e7263d2ec964", "bytes": 14272087 },
+    { "name": "PPSSPPSDL.data", "sha256": "881e5472ccb56513e5e8fa0e95214e7827c66ccbdac2912e78d572584e687e0b", "bytes": 22417304 }
+  ]
+}

@@ -1,3 +1,13 @@
+FROM node:22-alpine AS web-build
+
+WORKDIR /web
+
+COPY wasm-page/package*.json ./
+RUN npm ci
+
+COPY wasm-page ./
+RUN npm run build:pages
+
 FROM python:3.13-slim
 
 RUN apt-get update \
@@ -7,7 +17,7 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY server/serve.py ./server/serve.py
-COPY wasm-page ./wasm-page
+COPY --from=web-build /web/dist/ppsspp-web ./wasm-page/dist/ppsspp-web
 
 WORKDIR /app/server
 

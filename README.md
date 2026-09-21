@@ -2,20 +2,58 @@
 
 Web shell and local server for the PPSSPP WebAssembly build.
 
+This fork adds a **local OCR text layer** (MeikiPop-style pointer-following
+text for Yomitan/Hachidori, no bundled dictionary). See [`docs/ocr.md`](docs/ocr.md).
+
+**Live:** https://bee-san.github.io/ppsspp-web/ — deployed by
+`.github/workflows/pages-ocr.yml` from the `main` branch. The
+emulator binaries are the upstream-published PPSSPP WASM build pinned by
+SHA-256 in `wasm-page/emulator.lock.json`; OCR models are pinned by
+`meikiocr-web/models.lock.json`. Enable OCR from the header toggle (a one-time
+~46 MB model download, cached in the browser; nothing leaves the page).
+
 This repository contains:
 
-- `wasm-page/`: browser UI, service worker, manifest, and icons.
+- `wasm-page/`: Angular app, browser UI, service worker, manifest, and icons.
 - `server/`: HTTPS server with COOP/COEP headers and the browser ad hoc WebSocket relay.
 
-The emulator source and WebAssembly build outputs live in the sibling `ppsspp-wasm`
-repository.
+The emulator source and WebAssembly build outputs live in `deps/ppsspp-wasm`,
+the pinned Git submodule used for reproducible checkouts and local development.
+If you temporarily want to use a separate checkout, override
+`WASM_ROOT=/path/to/ppsspp-wasm`.
+
+## Checkout
+
+Clone with submodules:
+
+```sh
+git clone --recurse-submodules https://github.com/root-hunter/ppsspp-web.git
+```
+
+For an existing checkout:
+
+```sh
+git submodule update --init --recursive
+```
+
+Or use the Makefile wrapper:
+
+```sh
+make wasm-submodules
+```
 
 ## Local Run
 
-Build PPSSPP from the sibling repository first:
+Install and build the Angular app:
 
 ```sh
-cd ../ppsspp-wasm
+make app-install
+make app-build
+```
+
+Build PPSSPP from the active `WASM_ROOT` first:
+
+```sh
 make wasm-dev
 ```
 
@@ -25,9 +63,36 @@ Then serve it from this repository:
 make serve
 ```
 
-By default the server reads `../ppsspp-wasm/build-wasm/` and
-`../ppsspp-wasm/build-wasm-release/`. Use `WASM_ROOT=/path/to/ppsspp-wasm`
-if the checkout lives somewhere else.
+By default the server reads `deps/ppsspp-wasm/build-wasm/` and
+`deps/ppsspp-wasm/build-wasm-release/`. Use
+`WASM_ROOT=/path/to/ppsspp-wasm` if the checkout lives somewhere else.
+
+Useful local-development shortcuts:
+
+```sh
+make wasm-status
+make wasm-submodule-branch
+make wasm-dev
+make serve
+```
+
+To update the pinned submodule to the latest `origin/wasm`:
+
+```sh
+make wasm-submodule-update
+git diff --submodule
+```
+
+To pin `ppsspp-web` to the current committed HEAD of a separate sibling
+`../ppsspp-wasm` checkout, when you are using one:
+
+```sh
+make wasm-pin-local
+git diff --submodule
+```
+
+Push the `ppsspp-wasm` commit before sharing the `ppsspp-web` submodule pointer,
+otherwise other machines will not be able to fetch it.
 
 ## Docker
 
@@ -35,4 +100,32 @@ if the checkout lives somewhere else.
 make server-docker-up
 ```
 
-The compose file mounts `../ppsspp-wasm` read-only at `/wasm`.
+The Docker image builds the Angular web shell in a Node stage, then serves the
+compiled static bundle from the Python server. The compose file mounts
+`WASM_ROOT` read-only at `/wasm`. For the sibling local checkout:
+
+```sh
+make server-docker-up-local
+```
+
+## GitHub Pages
+
+Build the static Angular bundle with a relative base href, ready for GitHub
+Pages, from an existing `ppsspp-wasm` release build:
+
+```sh
+make wasm-release
+make app-build-pages
+```
+
+Or run the complete local pipeline in one shot:
+
+```sh
+make pages
+```
+
+The target writes the publishable app to `wasm-page/dist/ppsspp-web/`, adds
+`.nojekyll`, copies `$(WASM_ROOT)/build-wasm-release/` into
+`wasm-page/dist/ppsspp-web/build-wasm/`, and publishes
+`$(WASM_ROOT)/assets/` under `build-wasm/assets/` when present. That output
+directory is the exact static artifact uploaded by the GitHub Pages workflow.
