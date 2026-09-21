@@ -301,6 +301,7 @@ body.emulator-started #idleOverlay {
   font-size: clamp(12px, 1.8vw, 15px); line-height: 1.55;
   max-width: 34em;
 }
+.idle-hachidori-link { pointer-events: auto; }
 .idle-actions {
   display: grid; grid-template-columns: repeat(2, minmax(132px, 1fr));
   gap: 10px; margin-top: 22px; width: min(100%, 330px);
