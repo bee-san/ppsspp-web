@@ -9,7 +9,7 @@
 import { Injectable, signal } from '@angular/core';
 import type { LifecycleEvent } from '../ocr/ocr-types';
 import { AnkiConnect, AnkiConnectError, blobToBase64, mediaFilename } from './anki-connect';
-import { AudioRingBuffer, subSlice } from './audio-ring-buffer';
+import { AudioRingBuffer } from './audio-ring-buffer';
 import { FrameRingBuffer } from './frame-ring-buffer';
 import { MiningFrameCapture } from './mining-frame-capture';
 import { defaultRange } from './mining-picker-math';
@@ -148,6 +148,7 @@ export class MiningSessionService {
       channelCount: a?.channelsCount ?? 0,
       frameCount: f?.length ?? 0,
       frameBytes: f?.byteLength ?? 0,
+      capture: this.capture ? { ...this.capture.diag } : null,
     }));
   }
 
@@ -239,17 +240,17 @@ export class MiningSessionService {
     if (this.picker()) return;
     const s = this.settings();
     const nowMs = performance.now();
-    const all = this.audio.sliceAll();
-    if (!all || all.durationMs < 200) {
+    const audioStartMs = this.audio.startMs();
+    const audioEndMs = this.audio.endMs();
+    if (audioStartMs === null || audioEndMs === null || this.audio.availableMs() < 200) {
       this.toast('Nothing buffered yet — start a game first');
       return;
     }
-    const audioStartMs = all.startMs;
-    const audioEndMs = all.startMs + all.durationMs;
     const snapshot: MiningSnapshot = {
       nowMs,
       audioStartMs,
-      audio: all,
+      audioEndMs,
+      audio: this.audio.clone(),
       frames: this.frames.slice(audioStartMs - 1000, audioEndMs + 1000),
       gameId: this.gameId(),
     };
@@ -335,8 +336,8 @@ export class MiningSessionService {
 
   private async encode(snapshot: MiningSnapshot, sel: MiningSelection, onProgress: (pct: number) => void): Promise<EncodedClip> {
     const s = this.settings();
-    const slice = subSlice(snapshot.audio, sel.fromMs, sel.toMs);
-    if (slice.channels[0].length === 0) throw new Error('empty audio selection');
+    const slice = snapshot.audio.slice(sel.fromMs, sel.toMs);
+    if (!slice || slice.channels[0].length === 0) throw new Error('empty audio selection');
     const now = new Date();
     const audioFilename = mediaFilename(snapshot.gameId, 'mp3', now);
     const imageFilename = mediaFilename(snapshot.gameId, 'webp', now);
@@ -361,6 +362,15 @@ export class MiningSessionService {
       }
     }
     const audio = await audioP;
+    if (this.debug()) {
+      // Local, opt-in debugging (localStorage.ppsspp_mining_debug = "1"): last snapshot + selection on window.
+      (window as unknown as { __ppssppMiningDebug?: unknown }).__ppssppMiningDebug = {
+        selection: sel,
+        audio: { startMs: snapshot.audioStartMs, endMs: snapshot.audioEndMs, sampleRate: snapshot.audio.rate, sliceMs: slice.durationMs },
+        frames: snapshot.frames.map((f) => f.wallTimeMs),
+        framesUsed: s.imageMode === 'screenshot' ? 1 : snapshot.frames.filter((f) => f.wallTimeMs >= sel.fromMs && f.wallTimeMs <= sel.toMs).length,
+      };
+    }
     return { audio, image, audioFilename, imageFilename, durationMs: slice.durationMs };
   }
 
@@ -417,11 +427,12 @@ export class MiningSessionService {
   /** Debug: download whatever is buffered right now. */
   async downloadBufferNow(): Promise<void> {
     if (!this.audio || !this.frames) return;
-    const all = this.audio.sliceAll();
-    if (!all) return;
-    const snapshot: MiningSnapshot = { nowMs: performance.now(), audioStartMs: all.startMs, audio: all, frames: this.frames.all(), gameId: this.gameId() };
+    const startMs = this.audio.startMs();
+    const endMs = this.audio.endMs();
+    if (startMs === null || endMs === null) return;
+    const snapshot: MiningSnapshot = { nowMs: performance.now(), audioStartMs: startMs, audioEndMs: endMs, audio: this.audio.clone(), frames: this.frames.all(), gameId: this.gameId() };
     try {
-      const clip = await this.encode(snapshot, { fromMs: all.startMs, toMs: all.startMs + all.durationMs }, () => undefined);
+      const clip = await this.encode(snapshot, { fromMs: startMs, toMs: endMs }, () => undefined);
       this.downloadClip(clip);
     } catch (e) {
       this.toast(`Debug download failed: ${(e as Error).message}`);

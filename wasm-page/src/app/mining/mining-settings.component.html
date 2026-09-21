@@ -96,6 +96,7 @@
 
       @if (s().showDiagnostics) {
         <pre class="ocr-diag">phase={{ diag().phase }} audio={{ diag().bufferedAudioMs | number:'1.0-0' }}ms @{{ diag().sampleRate }}Hz×{{ diag().channelCount }} frames={{ diag().frameCount }} ({{ fmtBytes(diag().frameBytes) }})
+capture: attempts={{ diag().capture?.captures }} blankRetries={{ diag().capture?.blankRetries }} blankGiveUps={{ diag().capture?.blank }} encodeFailures={{ diag().capture?.encodeFailures }} lastEncode={{ diag().capture?.lastEncodeMs | number:'1.0-1' }}ms size={{ diag().capture?.lastSize }}
 game={{ mining.gameId() || 'unknown' }} picker={{ mining.picker() ? 'open' : 'closed' }} buffering={{ mining.buffering() }}
 lastError={{ diag().lastError || 'none' }}</pre>
       }

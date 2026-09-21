@@ -70,10 +70,16 @@ Advanced: diagnostics (`Buffered: 20.0 s @ 44100 Hz`, frame count / memory),
   wall-clock ranges map to sample ranges by interpolation; `FrameRingBuffer` holds
   `{wallTimeMs, blob}` stills and evicts by age. Both resize on settings change.
 - **Frame capture.** `MiningFrameCapture` copies the WebGL canvas inside a
-  `requestAnimationFrame` callback (registered after the emulator's own, same
-  trick as OCR) onto an opaque scratch canvas scaled to *max width*, then
-  `toBlob('image/webp', quality)`. All-black frames are skipped; capture pauses
-  while the tab is hidden or the game is not running.
+  `requestAnimationFrame` callback onto an opaque scratch canvas scaled to *max
+  width*, then `toBlob('image/webp', quality)`. The rAF is registered from a
+  timer task (not chained from inside rAF) and an all-black copy is retried on
+  the next frames (up to 8): the emulator draws asynchronously to the display
+  refresh, so with `preserveDrawingBuffer:false` a copy can land on a cleared
+  buffer. Capture pauses while the tab is hidden or the game is not running.
+- **Snapshot.** The hotkey clones the audio ring (samples + timestamps) so the
+  picker keeps a stable view while the live buffer rolls on; audio ranges are
+  resolved through the producer timestamps, so a stalled producer (dropped
+  audio on a slow device) does not shift frames against audio.
 - **Encoding.** MP3 via `@breezystack/lamejs` (pinned) in a module Worker.
   Animated WebP is a pure mux: `RIFF/WEBP` → `VP8X` (animation flag) + `ANIM` +
   one `ANMF` per still, wrapping each frame's `VP8 `/`VP8L` (+`ALPH`) payload with
@@ -103,6 +109,20 @@ wasm-page/src/app/mining/
   mining-picker.component.*   SubMiner-style modal (preview, waveform, handles, playback)
   mining-settings.component.* side panel "Mining" tab
 ```
+
+## Tests
+
+- `npm test` — unit specs for every pure module (settings, ring buffers, WebP
+  parser/muxer, MP3 helpers with a real lamejs encode, AnkiConnect with mocked
+  fetch, picker math).
+- `node scripts/e2e-mining.mjs` (after `ng build --configuration development`;
+  needs `playwright`) — runs the real PPSSPP WASM build headless: asserts the
+  bridge v2 tap receives PCM from the SP shim at the emulator's sample rate, the
+  ring fills at wall-clock rate, WebGL capture stores non-blank WebP frames,
+  `§` opens the picker with an input claim, Add produces an MP3 and an animated
+  WebP that the browser itself decodes (duration/size/frame count checked) and
+  sends them to a mocked AnkiConnect in the expected order. Runs in both CI
+  workflows.
 
 ## Manual checklist (mobile)
 

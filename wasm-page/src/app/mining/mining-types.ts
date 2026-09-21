@@ -90,13 +90,22 @@ export interface BufferedFrame {
   height: number;
 }
 
+/** Read-only view of a frozen audio ring (see AudioRingBuffer.clone()). */
+export interface AudioSnapshot {
+  slice(fromMs: number, toMs: number): PcmSlice | null;
+  peaksByTime(fromMs: number, toMs: number, bins: number): Float32Array;
+  readonly rate: number;
+  readonly channelsCount: number;
+}
+
 /** Everything the picker needs, frozen at the moment the user pressed the hotkey. */
 export interface MiningSnapshot {
   /** Wall-clock time the hotkey was pressed. */
   nowMs: number;
-  /** Earliest wall-clock time available in the audio buffer. */
+  /** Wall-clock bounds of the buffered audio (from the producer's timestamps). */
   audioStartMs: number;
-  audio: PcmSlice;
+  audioEndMs: number;
+  audio: AudioSnapshot;
   frames: BufferedFrame[];
   gameId: string | null;
 }
@@ -125,6 +134,8 @@ export interface MiningDiagnostics {
   channelCount: number;
   frameCount: number;
   frameBytes: number;
+  /** Capture loop counters (see MiningFrameCapture.diag). */
+  capture: { captures: number; blankRetries: number; blank: number; encodeFailures: number; lastEncodeMs: number; lastSize: string } | null;
   lastError: string | null;
   /** Result of the last Anki "Test connection". */
   anki: { ok: boolean; message: string } | null;
@@ -139,6 +150,7 @@ export function emptyMiningDiagnostics(): MiningDiagnostics {
     channelCount: 0,
     frameCount: 0,
     frameBytes: 0,
+    capture: null,
     lastError: null,
     anki: null,
   };

@@ -46,3 +46,7 @@ jobs:
         run: |
           cd wasm-page
           node scripts/e2e-emulator.mjs
+      - name: Sentence-mining E2E (real emulator audio tap + WebGL capture → MP3 + animated WebP → mocked AnkiConnect)
+        run: |
+          cd wasm-page
+          node scripts/e2e-mining.mjs

@@ -20,21 +20,34 @@ export interface FrameCaptureOptions {
 }
 
 export interface FrameCaptureDiagnostics {
+  /** Copies attempted (including blank retries). */
   captures: number;
+  /** Copies that came back all-black and were retried on the next frame. */
+  blankRetries: number;
+  /** Capture slots given up after MAX_BLANK_RETRIES consecutive black frames. */
   blank: number;
   encodeFailures: number;
   lastEncodeMs: number;
   lastSize: string;
 }
 
+/**
+ * The emulator draws asynchronously to the display refresh; a rAF copy that lands
+ * after the previous present but before the next draw sees a cleared buffer
+ * (preserveDrawingBuffer:false). Retry on consecutive frames until content shows up.
+ */
+const MAX_BLANK_RETRIES = 8;
+
 export class MiningFrameCapture {
   private raf = 0;
+  private timer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
   private lastCaptureMs = 0;
+  private retriesLeft = MAX_BLANK_RETRIES;
   private scratch: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private encoding = false;
-  readonly diag: FrameCaptureDiagnostics = { captures: 0, blank: 0, encodeFailures: 0, lastEncodeMs: 0, lastSize: '' };
+  readonly diag: FrameCaptureDiagnostics = { captures: 0, blankRetries: 0, blank: 0, encodeFailures: 0, lastEncodeMs: 0, lastSize: '' };
 
   constructor(
     private readonly bridge: MiningRuntimeBridge,
@@ -49,39 +62,65 @@ export class MiningFrameCapture {
   start(): void {
     if (this.running) return;
     this.running = true;
-    this.schedule();
+    this.lastCaptureMs = 0;
+    this.retriesLeft = MAX_BLANK_RETRIES;
+    this.scheduleFrame();
   }
 
   stop(): void {
     this.running = false;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
   }
 
   get isRunning(): boolean {
     return this.running;
   }
 
-  private schedule(): void {
-    if (!this.running) return;
+  /** Register the rAF copy from a timer task (not from inside rAF) so it queues after the emulator's own frame callback. */
+  private scheduleFrame(): void {
+    if (!this.running || this.raf) return;
     this.raf = requestAnimationFrame(() => this.tick());
+  }
+
+  private scheduleAfter(ms: number): void {
+    if (!this.running) return;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      this.scheduleFrame();
+    }, Math.max(0, ms));
   }
 
   private tick(): void {
     this.raf = 0;
     if (!this.running) return;
+    const interval = 1000 / Math.max(1, this.opts.fps);
+    const now = performance.now();
+    if (this.encoding) {
+      // Previous frame still encoding: look again shortly.
+      this.scheduleAfter(Math.min(interval / 2, 20));
+      return;
+    }
+    let outcome: 'stored' | 'blank' | 'none' = 'none';
     try {
-      const now = performance.now();
-      const interval = 1000 / Math.max(1, this.opts.fps);
-      if (!this.encoding && now - this.lastCaptureMs >= interval - 1) {
-        // Anchor on a grid so long encodes do not drift the cadence.
-        this.lastCaptureMs = this.lastCaptureMs ? this.lastCaptureMs + interval * Math.max(1, Math.floor((now - this.lastCaptureMs) / interval)) : now;
-        this.captureNow(now);
-      }
+      outcome = this.captureNow(now);
     } catch (e) {
       console.warn('[mining] frame capture failed', e);
     }
-    this.schedule();
+    if (outcome === 'blank' && this.retriesLeft > 0) {
+      this.retriesLeft--;
+      this.diag.blankRetries++;
+      this.scheduleFrame(); // very next frame
+      return;
+    }
+    if (outcome === 'blank') this.diag.blank++;
+    this.retriesLeft = MAX_BLANK_RETRIES;
+    // Anchor the cadence on a grid so retries/encodes do not drift it.
+    this.lastCaptureMs = this.lastCaptureMs ? this.lastCaptureMs + interval * Math.max(1, Math.floor((now - this.lastCaptureMs) / interval)) : now;
+    this.scheduleAfter(this.lastCaptureMs + interval - performance.now());
   }
 
   private ensureScratch(w: number, h: number): CanvasRenderingContext2D {
@@ -98,9 +137,9 @@ export class MiningFrameCapture {
     return this.ctx!;
   }
 
-  private captureNow(wallTimeMs: number): void {
+  private captureNow(wallTimeMs: number): 'stored' | 'blank' | 'none' {
     const canvas = this.bridge.getCanvas();
-    if (!canvas || canvas.width === 0 || canvas.height === 0) return;
+    if (!canvas || canvas.width === 0 || canvas.height === 0) return 'none';
     const sw = canvas.width;
     const sh = canvas.height;
     const scale = Math.min(1, this.opts.maxWidth / sw);
@@ -116,10 +155,7 @@ export class MiningFrameCapture {
     this.diag.lastSize = `${w}x${h}`;
 
     // Blank check on a sparse grid (16×16 samples) — cheap enough per frame.
-    if (this.isBlank(ctx, w, h)) {
-      this.diag.blank++;
-      return;
-    }
+    if (this.isBlank(ctx, w, h)) return 'blank';
 
     this.encoding = true;
     const t0 = performance.now();
@@ -142,6 +178,7 @@ export class MiningFrameCapture {
       'image/webp',
       this.opts.quality,
     );
+    return 'stored';
   }
 
   private isBlank(ctx: CanvasRenderingContext2D, w: number, h: number): boolean {

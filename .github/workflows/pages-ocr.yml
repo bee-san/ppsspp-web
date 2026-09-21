@@ -55,6 +55,10 @@ jobs:
           npm i --no-save playwright@1.63.0
           npx playwright install --with-deps chromium
           E2E_PATH_PREFIX=/ppsspp-web node scripts/e2e-emulator.mjs
+      - name: Sentence-mining E2E on the exact artifact (real emulator audio tap + WebGL capture → MP3 + animated WebP → mocked AnkiConnect)
+        run: |
+          cd wasm-page
+          E2E_PATH_PREFIX=/ppsspp-web node scripts/e2e-mining.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

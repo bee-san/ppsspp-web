@@ -1,6 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 
-import { peaks } from './audio-ring-buffer';
 import { frameIndexForTime } from './frame-ring-buffer';
 import { MIN_CLIP_MS, clampRange, dragHandle, formatOffset, formatSeconds, hitHandle, msToX, xToMs, type TimeRange } from './mining-picker-math';
 import { MiningSessionService, type PickerState } from './mining-session.service';
@@ -38,7 +37,7 @@ export class MiningPickerComponent {
   readonly bounds = computed(() => {
     const s = this.snapshot();
     if (!s) return { startMs: 0, endMs: 0 };
-    return { startMs: s.audioStartMs, endMs: s.audioStartMs + s.audio.durationMs };
+    return { startMs: s.audioStartMs, endMs: s.audioEndMs };
   });
   readonly imageMode = computed(() => this.settings().imageMode);
   readonly framesInRange = computed<BufferedFrame[]>(() => {
@@ -289,11 +288,11 @@ export class MiningPickerComponent {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     const bins = Math.max(16, Math.floor(w / 2));
+    const b = this.bounds();
     if (this.peakCache?.bins !== bins || this.peakCache.snapshot !== snap) {
-      this.peakCache = { bins, snapshot: snap, values: peaks(snap.audio, bins) };
+      this.peakCache = { bins, snapshot: snap, values: snap.audio.peaksByTime(b.startMs, b.endMs, bins) };
     }
     const pk = this.peakCache.values;
-    const b = this.bounds();
     const r = this.range();
     const xi = msToX(r.fromMs, w, b.startMs, b.endMs);
     const xo = msToX(r.toMs, w, b.startMs, b.endMs);
@@ -331,13 +330,10 @@ export class MiningPickerComponent {
       const ctx = (this.audioCtx ??= new AudioContext());
       if (ctx.state === 'suspended') await ctx.resume();
       const r = this.range();
-      const sr = snap.audio.sampleRate;
-      const a = Math.max(0, Math.round(((r.fromMs - snap.audioStartMs) / 1000) * sr));
-      const bLen = Math.max(1, Math.round(((r.toMs - r.fromMs) / 1000) * sr));
-      const buf = ctx.createBuffer(snap.audio.channels.length, bLen, sr);
-      for (let c = 0; c < snap.audio.channels.length; c++) {
-        buf.copyToChannel(snap.audio.channels[c].slice(a, a + bLen) as Float32Array<ArrayBuffer>, c);
-      }
+      const slice = snap.audio.slice(r.fromMs, r.toMs);
+      if (!slice || slice.channels[0].length === 0) return;
+      const buf = ctx.createBuffer(slice.channels.length, slice.channels[0].length, slice.sampleRate);
+      for (let c = 0; c < slice.channels.length; c++) buf.copyToChannel(slice.channels[c] as Float32Array<ArrayBuffer>, c);
       const src = ctx.createBufferSource();
       src.buffer = buf;
       src.connect(ctx.destination);

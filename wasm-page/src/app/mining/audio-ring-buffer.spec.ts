@@ -133,6 +133,49 @@ describe('AudioRingBuffer', () => {
     expect(ring.slice(11_400, 11_550)!.channels[0][0]).toBe(1400);
   });
 
+  it('clone() is independent and keeps the wall-clock mapping across a production gap', () => {
+    const ring = new AudioRingBuffer(2, SR, 2);
+    ring.push(planar(0, 100, 1000));
+    ring.push(planar(100, 100, 1100));
+    // Producer stalled for 300 ms (frames dropped), then resumed: 200 ms of audio spans 500 ms of wall-clock.
+    ring.push(planar(200, 100, 1500));
+    ring.push(planar(300, 100, 1600));
+    const snap = ring.clone();
+    ring.push(planar(400, 100, 1700)); // live ring moves on; the clone must not
+    expect(snap.available()).toBe(400);
+    expect(snap.startMs()).toBe(1000);
+    expect(snap.endMs()).toBe(1700);
+    // Wall-clock 1500..1600 → frames 200..300 even though "continuous" maths would say 500..600.
+    const s = snap.slice(1500, 1600)!;
+    expect(s.channels[0][0]).toBe(200);
+    expect(s.channels[0].length).toBe(100);
+    // Inside the gap the preceding chunk is stretched (interpolation by mark spacing): the
+    // range maps to a short piece of that chunk, never to audio produced after the gap.
+    const gap = snap.slice(1250, 1450)!;
+    expect(gap.channels[0].length).toBeLessThan(100);
+    expect(gap.channels[0][0]).toBeGreaterThanOrEqual(100);
+    expect(gap.channels[0][gap.channels[0].length - 1]).toBeLessThan(200);
+    expect(ring.available()).toBe(500);
+  });
+
+  it('peaksByTime maps bins through the marks (gaps stay silent)', () => {
+    const ring = new AudioRingBuffer(2, SR, 2);
+    const loud = (start: number, frames: number, t: number, amp: number) => {
+      const c = planar(start, frames, t) as { channels: Float32Array[] };
+      c.channels[0].fill(amp);
+      c.channels[1].fill(0);
+      return c as never;
+    };
+    ring.push(loud(0, 100, 1000, 0.2));
+    ring.push(loud(100, 100, 1500, 0.9)); // 400 ms gap before this chunk
+    const p = ring.peaksByTime(1000, 1600, 6); // 100 ms bins
+    expect(p[0]).toBeCloseTo(0.2, 5);
+    // Bins inside the gap map onto (at most) the boundary frame between the two chunks.
+    expect(p[2]).toBeLessThanOrEqual(0.9);
+    expect(p[5]).toBeCloseTo(0.9, 5);
+    expect(new AudioRingBuffer(1, SR, 1).peaksByTime(0, 100, 4).length).toBe(4);
+  });
+
   it('clear() empties the ring', () => {
     const ring = new AudioRingBuffer(1, SR, 2);
     fill(ring, 2, 100);

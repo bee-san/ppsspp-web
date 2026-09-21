@@ -237,6 +237,44 @@ export class AudioRingBuffer {
     this.marks = [];
     for (const ch of this.channels) ch.fill(0);
   }
+
+  /**
+   * Deep copy (samples + wall-clock marks). A snapshot for the picker: the live
+   * ring keeps rolling while the copy keeps its mark-based time mapping, so
+   * `slice(fromMs, toMs)` stays correct even when the producer dropped audio.
+   */
+  clone(): AudioRingBuffer {
+    const c = new AudioRingBuffer(this.seconds, this.sampleRate, this.channelCount);
+    c.channels = this.channels.map((ch) => ch.slice());
+    c.written = this.written;
+    c.floor = this.floor;
+    c.marks = this.marks.map((m) => ({ ...m }));
+    return c;
+  }
+
+  /**
+   * Peak envelope over a wall-clock window using the mark mapping per bin, so
+   * gaps in production show up as gaps rather than compressing the display.
+   */
+  peaksByTime(fromMs: number, toMs: number, bins: number): Float32Array {
+    const out = new Float32Array(Math.max(1, bins | 0));
+    if (this.available() === 0) return out;
+    const span = toMs - fromMs;
+    for (let b = 0; b < out.length; b++) {
+      const a = this.msToFrame(fromMs + (span * b) / out.length);
+      const e = Math.max(a + 1, this.msToFrame(fromMs + (span * (b + 1)) / out.length));
+      let peak = 0;
+      for (let f = a; f < e; f++) {
+        const i = f % this.capacity;
+        for (const ch of this.channels) {
+          const v = Math.abs(ch[i]);
+          if (v > peak) peak = v;
+        }
+      }
+      out[b] = Math.min(1, peak);
+    }
+    return out;
+  }
 }
 
 /**
