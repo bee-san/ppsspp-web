@@ -8,6 +8,7 @@
   </div>
 
   <p class="ocr-status" [attr.data-phase]="diag().phase === 'buffering' ? 'ready' : diag().phase">{{ diag().message }}</p>
+  <p class="ocr-muted mining-howto">Open this tab any time: right-click, long-press or Shift-click the header <strong>Mine</strong> button, use the ⚙ in the picker, or Panel → Mining.</p>
   @if (s().enabled) {
     <p class="ocr-muted mining-buffered">{{ bufferedLabel() }}</p>
   }

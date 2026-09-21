@@ -396,6 +396,11 @@ export class MiningPickerComponent {
     this.mining.cancel();
   }
 
+  openSettings(): void {
+    this.stop();
+    this.mining.openSettings();
+  }
+
   downloadInstead(): void {
     this.stop();
     this.mining.downloadLast();

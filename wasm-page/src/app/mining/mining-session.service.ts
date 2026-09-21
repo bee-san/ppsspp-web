@@ -443,6 +443,85 @@ export class MiningSessionService {
     if (f) saveBlob(f.blob, mediaFilename(this.gameId(), 'webp'));
   }
 
+  // ─────────────────────────── settings access ───────────────────────────
+
+  /**
+   * Open the side panel on the Mining tab (works whether or not mining is enabled
+   * or a game is running). Reached from the header Mine button (right-click /
+   * long-press / Shift-click, or a plain click while mining is off) and from the
+   * picker's gear button.
+   */
+  openSettings(): void {
+    if (this.picker()) this.cancel();
+    const doc = document;
+    if (!doc.body.classList.contains('panel-open')) {
+      const toggle = doc.getElementById('panelToggleBtn') as HTMLButtonElement | null;
+      if (toggle) toggle.click();
+      else {
+        doc.body.classList.add('panel-open');
+        try {
+          localStorage.setItem('ppsspp_panel_open', '1');
+        } catch {
+          /* storage unavailable */
+        }
+      }
+    }
+    const sel = doc.getElementById('panelTabSelect') as HTMLSelectElement | null;
+    if (sel) {
+      sel.value = 'mining';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      // Runtime not loaded yet: switch the panels directly.
+      doc.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', (t as HTMLElement).dataset['tab'] === 'mining'));
+      doc.querySelectorAll('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === 'tabMining'));
+    }
+    setTimeout(() => (doc.querySelector('#tabMining .mining-settings input, #tabMining .mining-settings button') as HTMLElement | null)?.focus?.(), 50);
+  }
+
+  private longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  private longPressFired = false;
+
+  /** Touch/mouse long-press (600 ms) on the Mine button opens the settings instead of mining. */
+  onMinePointerDown(ev: PointerEvent): void {
+    if (ev.button !== 0) return;
+    this.longPressFired = false;
+    if (this.longPressTimer) clearTimeout(this.longPressTimer);
+    this.longPressTimer = setTimeout(() => {
+      this.longPressTimer = null;
+      this.longPressFired = true;
+      this.openSettings();
+    }, 600);
+  }
+
+  onMinePointerUp(): void {
+    if (this.longPressTimer) clearTimeout(this.longPressTimer);
+    this.longPressTimer = null;
+  }
+
+  /** Header Mine button: mine when possible, otherwise take the user to the settings. */
+  onMineButton(ev?: MouseEvent): void {
+    if (this.longPressFired) {
+      // The click that follows a long-press must not also start mining.
+      this.longPressFired = false;
+      return;
+    }
+    if (ev && (ev.shiftKey || ev.button === 2)) {
+      ev.preventDefault();
+      this.openSettings();
+      return;
+    }
+    if (!this.settings().enabled) {
+      this.openSettings();
+      this.toast('Sentence mining is off — enable it here');
+      return;
+    }
+    if (!this.buffering()) {
+      this.openSettings();
+      return;
+    }
+    void this.mine();
+  }
+
   // ─────────────────────────── misc ───────────────────────────
 
   private patchDiag(p: Partial<MiningDiagnostics>): void {
