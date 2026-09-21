@@ -5,6 +5,13 @@ Web shell and local server for the PPSSPP WebAssembly build.
 This fork adds a **local OCR text layer** (MeikiPop-style pointer-following
 text for Yomitan/Hachidori, no bundled dictionary). See [`docs/ocr.md`](docs/ocr.md).
 
+**Live:** https://bee-san.github.io/ppsspp-web/ — deployed by
+`.github/workflows/pages-ocr.yml` from the `ocr-reading-layer` branch. The
+emulator binaries are the upstream-published PPSSPP WASM build pinned by
+SHA-256 in `wasm-page/emulator.lock.json`; OCR models are pinned by
+`meikiocr-web/models.lock.json`. Enable OCR from the header toggle (a one-time
+~46 MB model download, cached in the browser; nothing leaves the page).
+
 This repository contains:
 
 - `wasm-page/`: Angular app, browser UI, service worker, manifest, and icons.

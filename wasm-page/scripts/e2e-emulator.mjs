@@ -40,9 +40,16 @@ let failures = 0;
 const check = (ok, msg) => { console.log(`${ok ? "PASS" : "FAIL"} ${msg}`); if (!ok) failures++; };
 
 const root = resolve("dist/ppsspp-web");
+// E2E_PATH_PREFIX=/ppsspp-web mounts the site under a sub-path like GitHub Pages does,
+// which exercises the relative base href and every relative asset URL.
+const PREFIX = (process.env.E2E_PATH_PREFIX ?? "").replace(/\/$/, "");
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm", ".json": "application/json", ".css": "text/css", ".data": "application/octet-stream" };
 const server = createServer((req, res) => {
   let path = decodeURIComponent(new URL(req.url, "http://x").pathname);
+  if (PREFIX) {
+    if (path !== PREFIX && !path.startsWith(PREFIX + "/")) { res.writeHead(404).end("outside prefix: " + path); return; }
+    path = path.slice(PREFIX.length) || "/";
+  }
   let file = join(root, path);
   if (!existsSync(file) || statSync(file).isDirectory()) file = join(root, "index.html");
   res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream", "cross-origin-opener-policy": "same-origin", "cross-origin-embedder-policy": "require-corp", "cache-control": "no-store" });
@@ -55,7 +62,9 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 const logs = [];
 page.on("console", (m) => logs.push(`[${m.type()}] ${m.text().slice(0, 200)}`));
 page.on("pageerror", (e) => logs.push(`[pageerror] ${e.message}`));
-await page.goto(`http://127.0.0.1:${port}/`);
+const notFound = [];
+page.on("response", (r) => { if (r.status() === 404) notFound.push(r.url()); });
+await page.goto(`http://127.0.0.1:${port}${PREFIX}/`);
 await page.waitForFunction(() => !!window.PpssppReadingBridge && window.crossOriginIsolated, null, { timeout: 30_000 });
 
 await page.evaluate(() => localStorage.setItem("ppsspp_ocr_debug", "1"));
@@ -160,5 +169,6 @@ await page.screenshot({ path: "/tmp/emu-ocr.png" });
 if (process.env.E2E_VERBOSE) console.log("relevant console:\n" + logs.filter((l) => /ocr|OCR|blank|capture|error|Error/i.test(l) && !/favicon|sw\.js|Service/i.test(l)).slice(0, 20).join("\n"));
 await browser.close();
 server.close();
+check(notFound.length === 0, `no 404 responses under prefix "${PREFIX || "/"}" ${notFound.length ? JSON.stringify(notFound.slice(0, 5)) : ""}`);
 console.log(failures ? `\n${failures} check(s) FAILED` : "\nemulator E2E: all checks passed");
 process.exit(failures ? 1 : 0);

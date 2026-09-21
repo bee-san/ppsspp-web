@@ -11,7 +11,8 @@
     "watch": "ng build --watch --configuration development",
     "test": "vitest run",
     "test:watch": "vitest",
-    "ocr:export-assets": "node scripts/export-ocr-assets.mjs"
+    "ocr:export-assets": "node scripts/export-ocr-assets.mjs",
+    "emulator:fetch": "node scripts/fetch-emulator.mjs"
   },
   "dependencies": {
     "@angular/common": "21.2.14",

@@ -3,3 +3,4 @@ node_modules/
 dist/
 # OCR model/runtime assets are exported at build time (npm run ocr:export-assets); ~90 MB, never committed
 /public/ocr-assets/
+/public/build-wasm/

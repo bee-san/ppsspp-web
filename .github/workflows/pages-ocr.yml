@@ -1,0 +1,71 @@
+name: Deploy PPSSPP Web + OCR to GitHub Pages
+
+# Publishes the Angular shell with the local OCR reading layer to
+# https://bee-san.github.io/ppsspp-web/ .
+#  - Emulator: the prebuilt PPSSPP WASM pinned in wasm-page/emulator.lock.json
+#    (SHA-256 verified). To ship a source build instead, use wasm-pages.yml.
+#  - OCR: models pinned by meikiocr-web/models.lock.json + matching ONNX Runtime files.
+# Everything runs client-side; Pages serves static files only.
+on:
+  push:
+    branches: [ocr-reading-layer]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: wasm-page/package-lock.json
+      - run: npm --prefix wasm-page ci
+      - run: npm --prefix wasm-page test
+      - name: Fetch pinned prebuilt emulator (SHA-256 verified)
+        run: npm --prefix wasm-page run emulator:fetch
+      - name: Export pinned OCR models + matching ONNX Runtime files
+        run: npm --prefix wasm-page run ocr:export-assets
+      - name: Build (relative base href for the Pages sub-path)
+        run: npm --prefix wasm-page run build:pages
+      - name: Verify artifact
+        run: |
+          set -e
+          D=wasm-page/dist/ppsspp-web
+          test -f "$D/index.html" && grep -q '<base href="./">' "$D/index.html"
+          test -f "$D/build-wasm/PPSSPPSDL.js" && test -f "$D/build-wasm/PPSSPPSDL.wasm" && test -f "$D/build-wasm/PPSSPPSDL.data"
+          test -f "$D/ocr-assets/manifest.json" && test -f "$D/ocr-assets/ort-wasm-simd-threaded.wasm"
+          ls "$D"/worker-*.js
+          node --check "$D/sw.js"
+          touch "$D/.nojekyll"
+          du -sh "$D"
+      - name: Emulator E2E on the exact artifact under /ppsspp-web/ (as served by Pages)
+        run: |
+          cd wasm-page
+          npm i --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+          E2E_PATH_PREFIX=/ppsspp-web node scripts/e2e-emulator.mjs
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: wasm-page/dist/ppsspp-web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
