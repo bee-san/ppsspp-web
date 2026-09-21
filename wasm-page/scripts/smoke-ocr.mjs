@@ -8,9 +8,10 @@ import { chromium } from "playwright";
  *   npm i --no-save playwright && npx playwright install chromium
  *   node scripts/smoke-ocr.mjs
  * Serves dist/ppsspp-web with COOP/COEP, then verifies: reading bridge v1,
- * overlay + text layer mounted, consent → model download → "Ready (wasm)" via the
- * bundled worker, keydown input-claim gate, persisted settings, model cache, and
- * that a reload is ready again with zero .onnx network requests.
+ * overlay + text layer mounted, the idle Hachidori link is clickable, consent →
+ * model download → "Ready (wasm)" via the bundled worker, keydown input-claim
+ * gate, persisted settings, model cache, and that a reload is ready again with
+ * zero .onnx network requests.
  */
 
 const root = resolve("dist/ppsspp-web");
@@ -35,6 +36,18 @@ const bridge = await page.evaluate(() => ({ version: window.PpssppReadingBridge.
 console.log("bridge:", JSON.stringify(bridge));
 console.log("overlay host present:", await page.evaluate(() => !!document.getElementById("ocrOverlay") && document.getElementById("ocrOverlay").parentElement.classList.contains("stage")));
 console.log("text layer mounted:", await page.evaluate(() => !!document.querySelector(".ocr-text-layer")));
+const hachidoriUrl = "https://github.com/bee-san/hachidori";
+const hachidoriLink = page.locator(".idle-hachidori-link");
+if (await hachidoriLink.getAttribute("href") !== hachidoriUrl) throw new Error("Idle Hachidori link has the wrong destination");
+const isHachidoriUrl = (url) => url.href === hachidoriUrl || url.href === `${hachidoriUrl}/`;
+await page.context().route(isHachidoriUrl, (route) => route.fulfill({ contentType: "text/html", body: "Hachidori link target" }));
+const hachidoriPopupPromise = page.waitForEvent("popup");
+await hachidoriLink.click();
+const hachidoriPopup = await hachidoriPopupPromise;
+await hachidoriPopup.waitForURL(/^https:\/\/github\.com\/bee-san\/hachidori\/?$/, { timeout: 30_000 });
+console.log("idle Hachidori link:", hachidoriPopup.url());
+await hachidoriPopup.close();
+await page.context().unroute(isHachidoriUrl);
 // open OCR tab and enable
 await page.evaluate(() => { document.body.classList.add("panel-open"); document.querySelector(".tab[data-tab=ocr]").click(); });
 await page.click("#ocrToggleBtn");
