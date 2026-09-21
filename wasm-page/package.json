@@ -19,6 +19,7 @@
     "@angular/compiler": "21.2.14",
     "@angular/core": "21.2.14",
     "@angular/platform-browser": "21.2.14",
+    "@breezystack/lamejs": "1.2.7",
     "lucide": "1.16.0",
     "meikiocr-web": "git+https://github.com/bee-san/meikiocr-web.git#0431493cfc59534bdf9e48be95a9e43c21a206be",
     "tslib": "^2.8.1"

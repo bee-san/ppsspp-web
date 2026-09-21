@@ -20,6 +20,7 @@ import {
   RadioTower,
   RefreshCw,
   Save,
+  Scissors,
   Server,
   Settings,
   Terminal,
@@ -49,6 +50,7 @@ const PPSSPP_ICONS = {
   RadioTower,
   RefreshCw,
   Save,
+  Scissors,
   Server,
   Settings,
   Terminal,
@@ -56,7 +58,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-09-21-reading-bridge-v1';
+const RUNTIME_ASSET_VERSION = '2026-09-21-reading-bridge-v2';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {

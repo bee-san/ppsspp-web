@@ -1,0 +1,105 @@
+<section class="ocr-settings mining-settings" (focusin)="onFocusIn()" (focusout)="onFocusOut($event)">
+  <div class="ocr-row ocr-row-main">
+    <label class="ocr-toggle">
+      <input type="checkbox" [checked]="s().enabled" (change)="mining.toggleEnabled()" />
+      <span><strong>Sentence mining</strong> — send game audio + image to your last Anki card</span>
+    </label>
+    <button type="button" class="btn" title="Open the picker now (same as the hotkey)" (click)="mining.mine()" [disabled]="!mining.buffering()">Mine</button>
+  </div>
+
+  <p class="ocr-status" [attr.data-phase]="diag().phase === 'buffering' ? 'ready' : diag().phase">{{ diag().message }}</p>
+  @if (s().enabled) {
+    <p class="ocr-muted mining-buffered">{{ bufferedLabel() }}</p>
+  }
+
+  @if (s().enabled) {
+    <div class="ocr-grid">
+      <label>Hotkey
+        <span class="ocr-inline">
+          <kbd class="mining-kbd">{{ hotkeyLabel() }}</kbd>
+          <button type="button" class="btn" (click)="startRecording()" [attr.aria-pressed]="recording()">{{ recording() ? 'Press a key… (Esc to cancel)' : 'Change' }}</button>
+          <button type="button" class="btn" title="Show the picker instead of adding immediately" (click)="set('showPicker', !s().showPicker)">
+            {{ s().showPicker ? 'Picker: on' : 'Picker: off' }}
+          </button>
+        </span>
+      </label>
+
+      <label>Buffer length: {{ s().bufferSeconds }} s
+        <input type="range" min="5" max="60" step="1" [value]="s().bufferSeconds" (input)="onNumber('bufferSeconds', $event)" aria-label="Buffer length in seconds" />
+      </label>
+      <label>Default clip length: {{ s().defaultClipSeconds }} s
+        <input type="range" min="1" [max]="s().bufferSeconds" step="1" [value]="s().defaultClipSeconds" (input)="onNumber('defaultClipSeconds', $event)" aria-label="Default clip length in seconds" />
+      </label>
+
+      <label>Image
+        <select class="btn" [value]="s().imageMode" (change)="onSelect('imageMode', $event)">
+          <option value="animated">Animated WebP (follows the audio range)</option>
+          <option value="screenshot">Single screenshot (pick a frame)</option>
+        </select>
+      </label>
+      <div class="mining-three">
+        <label>Frames / s
+          <input class="btn" type="number" min="4" max="15" step="1" [value]="s().imageFps" (change)="onNumber('imageFps', $event)" />
+        </label>
+        <label>Max width (px)
+          <input class="btn" type="number" min="240" max="960" step="20" [value]="s().imageMaxWidth" (change)="onNumber('imageMaxWidth', $event)" />
+        </label>
+        <label>Quality
+          <input class="btn" type="number" min="0.5" max="0.95" step="0.05" [value]="s().imageQuality" (change)="onNumber('imageQuality', $event)" />
+        </label>
+      </div>
+
+      <label>MP3 bitrate
+        <select class="btn" [value]="s().audioBitrateKbps" (change)="onNumber('audioBitrateKbps', $event)">
+          <option value="64">64 kbps</option>
+          <option value="96">96 kbps (default)</option>
+          <option value="128">128 kbps</option>
+        </select>
+      </label>
+
+      <details open>
+        <summary>AnkiConnect</summary>
+        <label>URL
+          <input class="btn mining-text" type="url" spellcheck="false" autocomplete="off" [value]="s().ankiUrl" (change)="onText('ankiUrl', $event)" placeholder="http://127.0.0.1:8765" />
+        </label>
+        <div class="mining-three">
+          <label>Audio field
+            <input class="btn mining-text" type="text" spellcheck="false" autocomplete="off" [value]="s().audioField" (change)="onText('audioField', $event)" />
+          </label>
+          <label>Picture field
+            <input class="btn mining-text" type="text" spellcheck="false" autocomplete="off" [value]="s().pictureField" (change)="onText('pictureField', $event)" />
+          </label>
+          <label>Tag (optional)
+            <input class="btn mining-text" type="text" spellcheck="false" autocomplete="off" [value]="s().tag" (change)="onText('tag', $event)" placeholder="none" />
+          </label>
+        </div>
+        <div class="ocr-inline">
+          <button type="button" class="btn" (click)="testConnection()">Test connection</button>
+          @if (diag().anki; as a) {
+            <span class="ocr-muted" [class.mining-ok]="a.ok" [class.mining-error]="!a.ok">{{ a.message }}</span>
+          }
+        </div>
+        <p class="ocr-muted">Anki must be running with the AnkiConnect add-on (code 2055492159). The first request opens a dialog in Anki asking to allow this site — click <em>Yes</em>. On Android use AnkiConnect Android with AnkiDroid.</p>
+      </details>
+
+      <details>
+        <summary>Advanced</summary>
+        <label class="ocr-toggle"><input type="checkbox" [checked]="s().showDiagnostics" (change)="onCheckbox('showDiagnostics', $event)" /> Show diagnostics</label>
+        <label class="ocr-toggle"><input type="checkbox" [checked]="mining.debug()" (change)="mining.setDebug(($any($event.target)).checked)" /> Debug: also download files when adding</label>
+        <div class="ocr-inline">
+          <button type="button" class="btn" (click)="mining.downloadBufferNow()" [disabled]="!mining.buffering()">Download buffer (MP3 + WebP)</button>
+          <button type="button" class="btn" (click)="mining.downloadLatestFrame()" [disabled]="!mining.buffering()">Download latest frame</button>
+          <button type="button" class="btn danger" (click)="mining.resetPreferences()">Reset mining preferences</button>
+        </div>
+        <p class="ocr-muted">Buffers live in memory only; nothing is uploaded anywhere except to the AnkiConnect URL above.</p>
+      </details>
+
+      @if (s().showDiagnostics) {
+        <pre class="ocr-diag">phase={{ diag().phase }} audio={{ diag().bufferedAudioMs | number:'1.0-0' }}ms @{{ diag().sampleRate }}Hz×{{ diag().channelCount }} frames={{ diag().frameCount }} ({{ fmtBytes(diag().frameBytes) }})
+capture: attempts={{ diag().capture?.captures }} blankRetries={{ diag().capture?.blankRetries }} blankGiveUps={{ diag().capture?.blank }} encodeFailures={{ diag().capture?.encodeFailures }} lastEncode={{ diag().capture?.lastEncodeMs | number:'1.0-1' }}ms size={{ diag().capture?.lastSize }}
+game={{ mining.gameId() || 'unknown' }} picker={{ mining.picker() ? 'open' : 'closed' }} buffering={{ mining.buffering() }}
+lastError={{ diag().lastError || 'none' }}</pre>
+      }
+    </div>
+  }
+</section>

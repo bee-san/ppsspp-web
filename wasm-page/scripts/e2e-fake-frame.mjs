@@ -197,6 +197,16 @@ await hoverAll("hover each drawn character");
   await page.evaluate(() => { const cb = [...document.querySelectorAll("#tabOcr input[type=checkbox]")].find((i) => /auto scan/i.test(i.parentElement?.textContent ?? "")); if (cb?.checked) cb.click(); });
   await page.waitForTimeout(200);
   truth = await page.evaluate((s) => window.__fake.scene(s, "#0b1a2a"), [{ text: "手動モードの文", x: 100, y: 240, size: 34 }]);
+  // The previous step's "Full viewport" reset may still have a throttled scan pending; let the
+  // controller settle (no active inference, submitted count stable) before counting, otherwise
+  // that late submission is misattributed to the held key (observed flake: 4 → 6).
+  for (let last = -1, stableSince = Date.now(); ; ) {
+    const n = await diagNum("submitted");
+    const active = /active=true|pending=\S/.test(await page.evaluate(() => document.querySelector(".ocr-diag")?.textContent ?? ""));
+    if (n !== last) { last = n; stableSince = Date.now(); }
+    if (!active && Date.now() - stableSince > 900) break;
+    await page.waitForTimeout(150);
+  }
   const before = await diagNum("submitted");
   const p = await toClient(200, 258); await page.mouse.move(p.x, p.y);
   await page.keyboard.down("Shift");

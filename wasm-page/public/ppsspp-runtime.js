@@ -419,8 +419,18 @@ const ReadingBridge = (() => {
   });
   canvas?.addEventListener("webglcontextlost", () => emit({ type: "context-lost" }));
 
+  // Audio taps (bridge v2, sentence mining): called synchronously from the audio
+  // push paths with a view of the PCM about to be queued for playback. Listeners
+  // must copy what they need before returning; the buffers are reused.
+  //   planar:      { channels: Float32Array[], frames, sampleRate, wallTimeMs }
+  //   interleaved: { interleaved: Float32Array, channelCount, frames, sampleRate, wallTimeMs }
+  const audioTapListeners = new Set();
+  const emitAudio = (chunk) => {
+    for (const fn of audioTapListeners) { try { fn(chunk); } catch (err) { console.warn("[ReadingBridge] audio tap failed", err); } }
+  };
+
   const api = Object.freeze({
-    version: 1,
+    version: 2,
     getState: () => ({ ...state }),
     getCanvas: () => canvas,
     getStage: () => stageEl,
@@ -440,11 +450,14 @@ const ReadingBridge = (() => {
     hasInputClaim: anyClaim,
     /** Observe keydown/keyup before the emulator (and before the claim gate). Returns unsubscribe. */
     addReadingKeyListener(fn) { readingKeyListeners.add(fn); return () => readingKeyListeners.delete(fn); },
+    /** Observe game PCM synchronously as it is queued for playback (see emitAudio above). Returns unsubscribe. */
+    addAudioTapListener(fn) { audioTapListeners.add(fn); return () => audioTapListeners.delete(fn); },
+    hasAudioTapListeners: () => audioTapListeners.size > 0,
     isFullscreenActive: () => !!fullscreenElement(),
     requestFullscreen: () => requestBrowserFullscreen(),
     exitFullscreen: () => exitBrowserFullscreen(),
     // internal hooks used by this runtime
-    _setPhase: setPhase, _bumpScene: bumpScene, _setGame: setGame,
+    _setPhase: setPhase, _bumpScene: bumpScene, _setGame: setGame, _emitAudio: emitAudio,
     _started() { state.gameSessionId++; setPhase("loading"); emit({ type: "scene-epoch", sceneEpoch: ++state.sceneEpoch, reason: "runtime-start" }); },
   });
   window.PpssppReadingBridge = api;
@@ -3327,6 +3340,11 @@ function initScriptFallbackPlayer(ctx) {
 
 /* Called from SDL C callback via EM_ASM – must be fast */
 function pushGameAudioSamples(samples, frames) {
+  // Bridge v2 audio tap (sentence mining): synchronous, listeners copy immediately.
+  if (samples && frames > 0 && ReadingBridge.hasAudioTapListeners()) {
+    const sr = audioWorkletPlayer?.node?.context?.sampleRate || audioDebug.rate || 44100;
+    ReadingBridge._emitAudio({ interleaved: samples, channelCount: 2, frames, sampleRate: sr, wallTimeMs: performance.now() });
+  }
   scriptFallbackPlayer?.push(samples, frames);
   if (useScriptFallbackAudio) return;
   const p = audioWorkletPlayer;
@@ -3707,6 +3725,10 @@ function makeScriptProcessorShim(ctx, bufferSize, nIn, nOut) {
     }
     Atomics.store(_ctrl, 0, w);
     _producedFrames += bufsz;
+    // Bridge v2 audio tap (sentence mining): synchronous, listeners copy immediately.
+    if (ReadingBridge.hasAudioTapListeners()) {
+      ReadingBridge._emitAudio({ channels: _fakeChannels, frames: bufsz, sampleRate: SR, wallTimeMs: performance.now() });
+    }
     return true;
   }
 
