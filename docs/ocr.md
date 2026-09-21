@@ -22,7 +22,7 @@ wasm-page/src/app/ocr/
   ocr-settings.ts            schema-versioned localStorage record + per-game regions (tested)
   ocr-runtime-bridge.ts      typed wrapper for window.PpssppReadingBridge
   ocr-frame-source.ts        rAF-synchronised canvas copy, region crop, bounded downsample
-  ocr-text-layer.ts          source-aligned real-DOM text (glyph-spans default = one span per character on its OCR box; line-text alternative); invisible by default
+  ocr-text-layer.ts          source-aligned real-DOM text (glyph-spans default = one span per character, measured and scaled so its rendered box IS its OCR box; line-text alternative); invisible by default
   ocr-text-popup.ts          plain-text card: MeikiPop placement, hold corridor, pin/copy/close
   ocr-input-gate.ts          balanced reading-input claims (selection, popup, settings)
   ocr-region-selector.ts     drag-to-select normalized region; Esc cancels
@@ -90,6 +90,22 @@ characters at the line end (harness: 13/21 caret hits for `line-text` vs 21/21
 for `glyph-spans`). "Show recognized text over the game" in the OCR tab paints
 the layer for debugging. v1 settings that still had the old `line-text` default
 are migrated to `glyph-spans`; an explicit choice is kept.
+
+**Exact placement (how a glyph ends up on the game's glyph).** For each character
+the layer sets the span to its natural size (`line-height: normal`, so the inline
+text box equals the span box), reads that size once for all spans (one layout), then
+applies `translate(box) scale(box.w / natural.w, box.h / natural.h)` about the
+top-left. The rendered text box — what `caretRangeFromPoint`/`getClientRects`
+report to an extension — then coincides with the OCR box to the sub-pixel, with no
+dependence on font metrics. The OCR box → CSS mapping uses the canvas' padding box
+and its computed `object-fit` (the shell letterboxes only in fullscreen); the
+backing-store ratio handles devicePixelRatio. Geometry is re-measured before every
+publish, on ResizeObserver (canvas, stage, overlay host), on canvas `width`/`height`
+attribute changes (SDL resizes the backing store without touching the CSS box, which
+previously left the first layout after a game start scaled by the old size), on
+window resize/scroll/fullscreen/transitionend, and by a 250 ms watchdog comparing a
+geometry signature, which also catches pure CSS moves (transforms, layout shifts
+elsewhere) that fire no event at all.
 
 **One-click enable.** Clicking the header OCR button is the confirmation for the
 one-time model download (toast + progress line in the panel); there is no
@@ -160,6 +176,7 @@ pinned `models.lock.json` in meikiocr-web.
 - Verified in headless Chromium against the built Angular bundle (`scripts/smoke-ocr.mjs`, 2026-09-21): reading bridge v1 present; overlay + text layer mounted in `.stage`; OCR toggle → consent → model download → `Ready (wasm)` through the bundled worker chunk; keydown blocked while an input claim is held and released cleanly; settings persisted; `meikiocr-web-assets-v1` cache created; after reload the layer is ready again with **zero** `.onnx` network requests.
 - The OCR engine itself is verified in Chromium in the meikiocr-web repo (24/24 fixtures match the native pipeline).
 - Real emulator (headless Chromium + SwiftShader, upstream Pages build of PPSSPP 1.20.4-wasm, UI language ja_JP so the emulator's own menu supplies Japanese text; `scripts/e2e-emulator.mjs`, 2026-09-21): render-safe capture non-blank; OCR of the live canvas → 8 paragraphs / 10 real DOM text targets (ゲームの設定, PPSSPPについて, 終了 …) positioned over the source lines; hovering a target activates it. Scan latency on that host: ~1.9–2.0 s per 1365×768 frame (single WASM thread, software GL), capture 50–330 ms.
-- Still open (release gates, plan §14 C/D/E): the Yomitan/Hachidori extension gate on game text (needs a headed browser with the extensions installed); emulator matrix beyond the menu screen (a real game, save/load, fullscreen, context loss, SDL input arbitration while claims are held); performance measurements on real hardware; service-worker upgrade with existing saves.
+- Real game, ground truth (`scripts/e2e-game-alignment.mjs`, real emulator + `test-game/EBOOT.PBP`, a homebrew that draws two pages of Japanese text at positions recorded in `test-game/truth.json`; the PSP frame is located in the OCR capture from corner markers and mapped to CSS from computed style only, so nothing reuses the app's geometry code; 2026-09-21): across 15 layouts — panel closed/open, 1600×900 / 1200×700 / 900×1000 / 412×915, canvas shifted by padding, canvas moved by a CSS transform (no layout event at all), page scrolled, browser fullscreen and back, scene change to page 2, devicePixelRatio 2 with panel closed/open — every one of the 48 (17 on page 2) characters has a DOM glyph whose rendered box equals its OCR box (0.00 px), `caretRangeFromPoint` at the ink centre resolves to that character for 48/48, at 5 probe points per glyph for 240/240, the DOM centre is off the ink centre by 6–10 % of the font size on average and ≤ 25 % at worst (line-final `。`, boxed as a full cell by the recognizer), and 93–98 % of each glyph's ink lies inside its DOM box. Before the fix the first layout after a game start was scaled by the pre-game canvas size (centre error 400 %, 3/48 hits) and steady-state boxes held glyphs 14 % smaller than the box.
+- Still open (release gates, plan §14 C/D/E): the Yomitan/Hachidori extension gate on game text (needs a headed browser with the extensions installed); emulator matrix beyond the homebrew test game (a commercial-style game with sceFont text, save/load, context loss, SDL input arbitration while claims are held); performance measurements on real hardware; service-worker upgrade with existing saves.
 - Game identity is best-effort (mounted file name); PPSSPP's disc ID is not exposed to JS. Save-state loads inside the emulator are not observable from the shell, so the stale-image check is the fallback invalidation.
 - WebGPU is selectable but unvalidated; it falls back to WASM.

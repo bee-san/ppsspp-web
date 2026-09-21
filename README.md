@@ -24,6 +24,12 @@ on hover. Recognition covers the full game viewport by default. The **Keys** tab
 in the side panel lists every key the page reacts to (OCR activation key, mining
 hotkey, picker keys, PPSSPP's default keyboard map).
 
+The invisible text is placed on the game's own glyphs to the sub-pixel and follows
+the canvas through panel toggles, window resizes, fullscreen, page scroll and
+device-pixel-ratio changes. This is tested end to end in the real emulator with a
+small homebrew PSP program (`wasm-page/test-game/`, Japanese text at known
+positions) by `wasm-page/scripts/e2e-game-alignment.mjs`, which runs in CI.
+
 This repository contains:
 
 - `wasm-page/`: Angular app, browser UI, service worker, manifest, and icons.

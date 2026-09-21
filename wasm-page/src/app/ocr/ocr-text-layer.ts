@@ -15,7 +15,7 @@
  */
 import type { LayoutGlyph, LayoutParagraph, LayoutSnapshot, TextHit } from 'meikiocr-web/meikipop';
 import type { OcrLine } from 'meikiocr-web';
-import type { BridgeViewport, CssRect, PublishedLayout, TextLayerStrategy } from './ocr-types';
+import type { BridgeViewport, CaptureMeta, CssRect, PublishedLayout, TextLayerStrategy } from './ocr-types';
 import { imageRectToCss } from './ocr-coordinate-map';
 
 export interface TextLayerOptions {
@@ -166,6 +166,11 @@ export class OcrTextLayer {
     const vp = this.viewport;
     if (!vp || !this.published) return;
     const meta = this.published.meta;
+    if (this.options.strategy === 'glyph-spans') {
+      this.repositionGlyphSpans(vp, meta);
+      if (this.activeGlyph && !this.highlight.hidden) this.placeHighlight();
+      return;
+    }
     for (const pl of this.placed) {
       const css = imageRectToCss(pl.box, meta, vp.contentRect, vp.sourceWidth, vp.sourceHeight);
       const st = pl.el.style;
@@ -205,6 +210,51 @@ export class OcrTextLayer {
       }
     }
     if (this.activeGlyph && !this.highlight.hidden) this.placeHighlight();
+  }
+
+  /**
+   * glyph-spans: make each character's rendered inline box coincide with its OCR box.
+   *
+   * A font's glyph never fills its em box (side bearings, ascent/descent, and the
+   * recognizer's boxes are ink-tight), so sizing the span to the box leaves the actual
+   * text — the thing extensions hit-test with caretRangeFromPoint / getClientRects —
+   * smaller and offset inside it. Instead: lay the span out at its natural size with
+   * `line-height: normal` (inline box == span box), measure that once, then scale the
+   * span about its top-left so the measured box maps exactly onto the OCR box. Three
+   * passes = two layouts per reposition, never per pointer event.
+   */
+  private repositionGlyphSpans(vp: BridgeViewport, meta: CaptureMeta): void {
+    const rects: CssRect[] = [];
+    for (const pl of this.placed) {
+      const css = imageRectToCss(pl.box, meta, vp.contentRect, vp.sourceWidth, vp.sourceHeight);
+      rects.push(css);
+      const st = pl.el.style;
+      const thickness = pl.orientation === 'vertical' ? css.width : css.height;
+      st.transform = '';
+      st.width = '';
+      st.height = '';
+      st.marginRight = '0px';
+      st.lineHeight = 'normal';
+      st.letterSpacing = '0';
+      st.fontSize = `${Math.max(4, thickness)}px`;
+    }
+    // One forced layout for all spans.
+    const natural = this.placed.map((pl) => {
+      const r = pl.el.getBoundingClientRect();
+      return { w: r.width, h: r.height };
+    });
+    for (let i = 0; i < this.placed.length; i++) {
+      const pl = this.placed[i];
+      const css = rects[i];
+      const { w, h } = natural[i];
+      const sx = w > 0 ? css.width / w : 1;
+      const sy = h > 0 ? css.height / h : 1;
+      const st = pl.el.style;
+      // Zero flow advance: every sibling lays out at the paragraph origin, so the
+      // transform is the absolute placement (transform-origin is 0 0 in CSS).
+      st.marginRight = `${-w}px`;
+      st.transform = `translate(${css.left - this.hostRect.left}px, ${css.top - this.hostRect.top}px) scale(${sx}, ${sy})`;
+    }
   }
 
   private activeGlyphBox: readonly [number, number, number, number] | null = null;
