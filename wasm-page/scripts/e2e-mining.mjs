@@ -85,8 +85,12 @@ await page.evaluate(() => {
 await page.waitForSelector("#tabMining.active", { timeout: 5000 });
 check(/Waiting for the game/.test(await page.locator("app-mining-settings .ocr-status").innerText()), "mining idle before the emulator runs");
 
-// Independent tap observer (like the plan's DevTools demo) to count raw chunks from the runtime.
+// Independent tap observer (like the plan's DevTools demo) to count raw chunks from the runtime,
+// plus a lifecycle-event timeline for post-mortems on slow runners.
 await page.evaluate(() => {
+  window.__events = [];
+  window.PpssppReadingBridge.subscribeLifecycle((ev) => window.__events.push({ t: Math.round(performance.now()), ...ev }));
+  document.addEventListener("visibilitychange", () => window.__events.push({ t: Math.round(performance.now()), type: "doc-visibility", hidden: document.hidden }));
   window.__tap = { chunks: 0, frames: 0, sampleRate: 0, planar: 0, interleaved: 0, peak: 0 };
   window.PpssppReadingBridge.addAudioTapListener((c) => {
     const t = window.__tap; t.chunks++; t.frames += c.frames; t.sampleRate = c.sampleRate;
@@ -211,7 +215,10 @@ console.log("debug snapshot:", JSON.stringify(dbg));
 const sliceSeconds = (dbg?.audio?.sliceMs ?? selSeconds * 1000) / 1000;
 const productionRatio = sliceSeconds / selSeconds;
 console.log(`audio produced in the selection: ${sliceSeconds.toFixed(2)} s of ${selSeconds} s wall-clock (ratio ${productionRatio.toFixed(2)})`);
-check(dbg && Math.abs(dbg.audio.endMs - dbg.lastFrame) < 400 && dbg.framesUsed === dbg.frameCount, `snapshot audio end (${dbg?.audio?.endMs?.toFixed(0)} ms) aligns with the newest frame (${dbg?.lastFrame?.toFixed(0)} ms); ${dbg?.framesUsed}/${dbg?.frameCount} frames in range`);
+// The selection is the last `defaultClipSeconds` of a possibly longer buffer, so older frames may
+// legitimately fall outside it; what must hold is that the newest audio and the newest frame agree.
+check(dbg && Math.abs(dbg.audio.endMs - dbg.lastFrame) < 400 && dbg.framesUsed >= 3, `snapshot audio end (${dbg?.audio?.endMs?.toFixed(0)} ms) aligns with the newest frame (${dbg?.lastFrame?.toFixed(0)} ms); ${dbg?.framesUsed}/${dbg?.frameCount} frames in the ${selSeconds} s selection`);
+console.log("lifecycle timeline:", JSON.stringify(await page.evaluate(() => window.__events)));
 check(productionRatio > 0.3, `audio production ratio ${productionRatio.toFixed(2)} (≈1 on real hardware; lower under SwiftShader)`);
 check(media.sync && media.decoded && !media.decoded.error && Math.abs(media.decoded.duration - sliceSeconds) < 0.15 && media.decoded.channels === 2, `MP3 decodes in-browser: ${media.decoded?.duration?.toFixed(2)} s (selected audio ${sliceSeconds.toFixed(2)} s), ${media.decoded?.channels} ch, ${media.mp3Bytes} B`);
 const expectedBytes = sliceSeconds * 96_000 / 8;

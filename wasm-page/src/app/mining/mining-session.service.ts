@@ -113,9 +113,7 @@ export class MiningSessionService {
         this.documentVisible = ev.visible;
         this.syncRunning();
         break;
-      case 'context-lost':
-        this.frames?.clear();
-        break;
+      // context-lost: already-encoded frames stay valid history; nothing to drop.
       default:
         break;
     }
