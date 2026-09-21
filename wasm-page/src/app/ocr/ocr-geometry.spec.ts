@@ -51,6 +51,8 @@ describe('coordinate map', () => {
       scale: 0.5,
       imageWidth: 120,
       imageHeight: 68,
+      sourceWidth: 480,
+      sourceHeight: 272,
     };
     // Client point at the crop's centre: norm (0.75, 0.75) → source (360, 204) → image (60, 34)
     const pt = clientToImage(100 + 0.75 * 960, 50 + 0.75 * 544, content, meta, src.w, src.h)!;

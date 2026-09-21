@@ -394,12 +394,20 @@ const ReadingBridge = (() => {
   // Installed before SDL registers its own window listeners (which happens when
   // the emulator starts), so stopImmediatePropagation() reliably precedes them.
   // Only keydown/keypress are blocked; keyup always passes to avoid stuck buttons.
+  // Reading-layer key observers (OCR hotkey, Escape for region selection) run
+  // here, ahead of the gate, so they still work while a claim blocks the emulator.
+  // They must not call stopPropagation themselves; the gate decides.
+  const readingKeyListeners = new Set();
   const keyGate = (e) => {
+    if (e.type === "keydown" || e.type === "keyup") {
+      for (const fn of readingKeyListeners) { try { fn(e); } catch (err) { console.warn("[ReadingBridge] key listener failed", err); } }
+    }
     if (!anyClaim()) return;
     if (e.type === "keyup") return;
     e.stopImmediatePropagation();
   };
   window.addEventListener("keydown",  keyGate, true);
+  window.addEventListener("keyup",    keyGate, true);
   window.addEventListener("keypress", keyGate, true);
   document.addEventListener("visibilitychange", () => {
     state.documentVisible = !document.hidden;
@@ -430,6 +438,8 @@ const ReadingBridge = (() => {
       return () => {};
     },
     hasInputClaim: anyClaim,
+    /** Observe keydown/keyup before the emulator (and before the claim gate). Returns unsubscribe. */
+    addReadingKeyListener(fn) { readingKeyListeners.add(fn); return () => readingKeyListeners.delete(fn); },
     isFullscreenActive: () => !!fullscreenElement(),
     requestFullscreen: () => requestBrowserFullscreen(),
     exitFullscreen: () => exitBrowserFullscreen(),

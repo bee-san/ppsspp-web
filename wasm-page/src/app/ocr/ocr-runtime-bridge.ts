@@ -15,6 +15,7 @@ export interface RawReadingBridge {
   subscribeLifecycle(cb: (ev: LifecycleEvent) => void): () => void;
   setReadingInputClaim(reason: string, active: boolean): () => void;
   hasInputClaim(): boolean;
+  addReadingKeyListener(fn: (e: KeyboardEvent) => void): () => void;
   isFullscreenActive(): boolean;
   requestFullscreen(): Promise<boolean>;
   exitFullscreen(): Promise<boolean>;
@@ -58,6 +59,20 @@ export class OcrRuntimeBridge {
   }
   hasInputClaim(): boolean {
     return this.raw.hasInputClaim();
+  }
+  /**
+   * Key events for the reading layer, delivered before the emulator and before
+   * the claim gate blocks keydown. Falls back to a window capture listener when
+   * the runtime predates this hook (then keys are blocked while a claim is held).
+   */
+  onKey(fn: (e: KeyboardEvent) => void): () => void {
+    if (typeof this.raw.addReadingKeyListener === 'function') return this.raw.addReadingKeyListener(fn);
+    window.addEventListener('keydown', fn, true);
+    window.addEventListener('keyup', fn, true);
+    return () => {
+      window.removeEventListener('keydown', fn, true);
+      window.removeEventListener('keyup', fn, true);
+    };
   }
   isFullscreen(): boolean {
     return this.raw.isFullscreenActive();

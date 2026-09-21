@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LayoutSnapshot, TextHit } from 'meikiocr-web/meikipop';
 import type { OcrSnapshot } from 'meikiocr-web';
-import { OcrScanController, type ControllerPorts, type Scheduler } from './ocr-scan-controller';
+import { OcrScanController, UNCHANGED_BACKOFF_MS, type ControllerPorts, type Scheduler } from './ocr-scan-controller';
 import { DEFAULT_OCR_SETTINGS, FULL_REGION, type CapturedGameFrame, type OcrSettings, type PublishedLayout } from './ocr-types';
 
 /** Deterministic virtual clock + timers. */
@@ -99,7 +99,7 @@ function makeLayout(s: OcrSnapshot): LayoutSnapshot {
   };
 }
 
-function harness(overrides: Partial<OcrSettings> = {}, opts: { ocrText?: string } = {}): Harness {
+function harness(overrides: Partial<OcrSettings> = {}, opts: { ocrText?: string; detachBuffers?: boolean } = {}): Harness {
   const sched = new FakeScheduler();
   let pixels = 1;
   let ocrDelay = 0;
@@ -133,12 +133,16 @@ function harness(overrides: Partial<OcrSettings> = {}, opts: { ocrText?: string 
           scale: 1,
           imageWidth: 100,
           imageHeight: 50,
+      sourceWidth: 480,
+      sourceHeight: 272,
         },
       };
       return frame;
     },
     ocr: (frame) => {
       h.ocrCalls++;
+      // Like the real client with transfer:'move': the frame buffer is transferred to the worker and detached here.
+      if (opts.detachBuffers) structuredClone(frame.frame.rgba, { transfer: [frame.frame.rgba] });
       const shouldFail = failNext;
       failNext = false;
       const make = () => {
@@ -431,8 +435,8 @@ describe('OcrScanController (MeikiPop scheduling)', () => {
     expect(h.ocrCalls).toBe(2);
   });
 
-  it('stale check retires spatial targets when the image changes while text is visible', async () => {
-    const h = harness();
+  it("stale check ('remove' policy) retires spatial targets when the image changes while text is visible", async () => {
+    const h = harness({ stalePolicy: 'remove' });
     await ready(h);
     expect(h.layouts.filter(Boolean).length).toBe(1);
     h.setPixels(42);
@@ -455,5 +459,109 @@ describe('OcrScanController (MeikiPop scheduling)', () => {
     expect(h.ctrl.getPublished()).not.toBeNull();
     move(h, 22, 15);
     expect(h.hits.at(-1)?.utf16Offset).toBe(1);
+  });
+
+  it('unchanged detection survives the OCR port detaching (transferring) the frame buffer', async () => {
+    const h = harness({}, { detachBuffers: true });
+    await ready(h);
+    expect(h.ocrCalls).toBe(1);
+    for (let i = 0; i < 6; i++) {
+      move(h, 10 + i, 15);
+      await h.sched.advance(600);
+    }
+    // Same pixels every time: no further inference, layout kept.
+    expect(h.ocrCalls).toBe(1);
+    expect(h.layouts.filter((l) => l === null).length).toBe(0);
+    expect(h.ctrl.getDiagnostics().scansSkippedUnchanged).toBeGreaterThan(0);
+    // Stale check with identical pixels must not clear the layout either.
+    await h.sched.advance(2000);
+    expect(h.layouts.filter((l) => l === null).length).toBe(0);
+  });
+
+  it('disabling OCR removes the published layout; re-enabling performs a fresh initial scan', async () => {
+    const h = harness();
+    await ready(h);
+    move(h, 15, 15);
+    expect(h.hits.at(-1)).not.toBeNull();
+    h.ctrl.setEnabled(false);
+    await flush();
+    expect(h.layouts.at(-1)).toBeNull();
+    expect(h.ctrl.getPublished()).toBeNull();
+    expect(h.hits.at(-1)).toBeNull();
+    // pointer movement while disabled cannot reactivate anything
+    move(h, 16, 15);
+    expect(h.hits.at(-1)).toBeNull();
+    const before = h.ocrCalls;
+    h.ctrl.setEnabled(true);
+    await flush();
+    await h.sched.advance(600);
+    expect(h.ocrCalls).toBe(before + 1);
+  });
+
+  it('after an unchanged image, movement captures back off (MeikiPop 0.1 s) instead of every event', async () => {
+    const h = harness();
+    await ready(h);
+    await h.sched.advance(600);
+    const c0 = h.captures;
+    for (let i = 0; i < 20; i++) {
+      move(h, 10 + i, 15);
+      await h.sched.advance(10); // 20 moves in 200 ms
+    }
+    // ≤ 1 capture per UNCHANGED_BACKOFF_MS window (plus the trailing one)
+    expect(h.captures - c0).toBeLessThanOrEqual(Math.ceil(200 / UNCHANGED_BACKOFF_MS) + 1);
+    expect(h.ocrCalls).toBe(1);
+  });
+
+  it('a source framebuffer size change invalidates the layout; a pure CSS resize does not', async () => {
+    const h = harness();
+    await ready(h);
+    expect(h.ctrl.getPublished()).not.toBeNull();
+    h.ctrl.geometryChanged(480, 272); // same source size: CSS-only change
+    expect(h.ctrl.getPublished()).not.toBeNull();
+    h.ctrl.geometryChanged(960, 544); // source changed
+    expect(h.ctrl.getPublished()).toBeNull();
+    expect(h.layouts.at(-1)).toBeNull();
+    await h.sched.advance(600);
+    expect(h.ocrCalls).toBe(2); // fresh initial scan
+  });
+
+  it('stale check does not capture while no spatial text can be visible (hold-key mode, key up)', async () => {
+    const h = harness({ lookupsWithoutHotkey: false });
+    await ready(h);
+    await h.sched.advance(600);
+    const c0 = h.captures;
+    await h.sched.advance(3000);
+    expect(h.captures).toBe(c0);
+  });
+
+  it("stale policy 'mark' keeps text readable but flags it; the next movement re-infers", async () => {
+    const h = harness({ stalePolicy: 'mark' });
+    await ready(h);
+    h.setPixels(2); // animated background changes under the visible text
+    await h.sched.advance(600); // stale check fires
+    const last = h.layouts.at(-1);
+    expect(last).not.toBeNull();
+    expect(last!.stale).toBe(true);
+    expect(h.ctrl.getDiagnostics().staleDetected).toBe(1);
+    move(h, 30, 15);
+    await h.sched.advance(600);
+    expect(h.ocrCalls).toBe(2); // not skipped as unchanged
+    expect(h.layouts.at(-1)!.stale).toBeUndefined();
+  });
+
+  it("stale policy 'remove' retires the targets; 'off' never captures for freshness", async () => {
+    const hr = harness({ stalePolicy: 'remove' });
+    await ready(hr);
+    hr.setPixels(2);
+    await hr.sched.advance(600);
+    expect(hr.layouts.at(-1)).toBeNull();
+
+    const ho = harness({ stalePolicy: 'off' });
+    await ready(ho);
+    const c0 = ho.captures;
+    ho.setPixels(2);
+    await ho.sched.advance(3000);
+    expect(ho.captures).toBe(c0);
+    expect(ho.layouts.at(-1)).not.toBeNull();
   });
 });

@@ -41,6 +41,7 @@ export function sanitize(s: OcrSettings): OcrSettings {
   out.maxCapturePixels = clampNum(out.maxCapturePixels, 65_536, 4_000_000, DEFAULT_OCR_SETTINGS.maxCapturePixels);
   out.fontScale = clampNum(out.fontScale, 0.5, 3, 1);
   if (!['source-aligned', 'popup'].includes(out.presentation)) out.presentation = 'source-aligned';
+  if (!['remove', 'mark', 'off'].includes(out.stalePolicy)) out.stalePolicy = 'mark';
   if (!['line-text', 'glyph-spans'].includes(out.textLayerStrategy)) out.textLayerStrategy = 'line-text';
   if (!['visual_novel_mode', 'flip_horizontally', 'flip_vertically', 'flip_both'].includes(out.popupPositionMode)) {
     out.popupPositionMode = 'visual_novel_mode';

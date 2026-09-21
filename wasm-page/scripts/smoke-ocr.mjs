@@ -58,6 +58,29 @@ const gate = await page.evaluate(() => {
   return { seenKeydowns: seen, hasClaimAfterRelease: b.hasInputClaim() };
 });
 console.log("input gate:", JSON.stringify(gate), "(expect seenKeydowns=2: before claim and after release)");
+// Region selection: Escape must cancel even though the reading input claim blocks keydown for the emulator.
+{
+  const r = await page.evaluate(async () => {
+    const btn = [...document.querySelectorAll("button")].find((b) => /select text area/i.test(b.textContent));
+    btn.click();
+    await new Promise((r) => setTimeout(r, 50));
+    const active = !!document.querySelector(".ocr-region-select");
+    const claimed = window.PpssppReadingBridge.hasInputClaim();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+    return { active, claimed, cancelled: !document.querySelector(".ocr-region-select"), claimReleased: !window.PpssppReadingBridge.hasInputClaim() };
+  });
+  console.log("region select Escape:", JSON.stringify(r), "(expect all true)");
+}
+// Disabling OCR must remove the readable text layer content and any input claim.
+{
+  await page.click("#ocrToggleBtn");
+  await page.waitForTimeout(100);
+  const r = await page.evaluate(() => ({ status: document.querySelector(".ocr-status").textContent.trim(), textTargets: document.querySelectorAll(".ocr-text-target").length, claims: window.PpssppReadingBridge.hasInputClaim() }));
+  console.log("after disable:", JSON.stringify(r));
+  await page.click("#ocrToggleBtn"); // re-enable for the reload check
+  await page.waitForFunction(() => /^Ready/.test((document.querySelector(".ocr-status")?.textContent ?? "").trim()), null, { timeout: 60_000 });
+}
 console.log("settings persisted:", await page.evaluate(() => JSON.parse(localStorage.getItem("ppsspp_ocr_settings_v1")).enabled));
 console.log("model cache present:", await page.evaluate(async () => (await caches.keys()).includes("meikiocr-web-assets-v1")));
 // reload: models should come from Cache Storage (no network for .onnx)

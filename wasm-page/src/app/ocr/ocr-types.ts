@@ -67,7 +67,15 @@ export interface OcrSettings {
   ocrBackend: OcrBackendSetting;
   wasmThreads: number;
   pauseGameDuringLookup: boolean;
-  staleCheckWhileTextVisible: boolean;
+  /**
+   * Browser adaptation (plan §7 "stationary pointer and stale text"): while spatial
+   * text is visible, compare the raw crop at the scan cadence. When pixels changed:
+   *  - remove: retire the spatial hit targets (safest; text vanishes on animated regions)
+   *  - mark:   keep the targets readable but flag them as possibly outdated (default;
+   *            the next pointer movement re-scans as usual)
+   *  - off:    no freshness check
+   */
+  stalePolicy: 'remove' | 'mark' | 'off';
   /** Cap on capture pixels; larger crops are downsampled with the transform retained. */
   maxCapturePixels: number;
   showDiagnostics: boolean;
@@ -90,7 +98,7 @@ export const DEFAULT_OCR_SETTINGS: Readonly<OcrSettings> = Object.freeze({
   ocrBackend: 'wasm',
   wasmThreads: 1,
   pauseGameDuringLookup: false,
-  staleCheckWhileTextVisible: true,
+  stalePolicy: 'mark',
   maxCapturePixels: 1_048_576, // 1 MP; PSP renders are 480x272 natively
   showDiagnostics: false,
   fontScale: 1,
@@ -147,6 +155,9 @@ export interface CaptureMeta {
   scale: number;
   imageWidth: number;
   imageHeight: number;
+  /** Source framebuffer size at capture time (a change invalidates the layout). */
+  sourceWidth: number;
+  sourceHeight: number;
 }
 
 export interface CapturedGameFrame {
@@ -167,6 +178,8 @@ export interface PublishedLayout {
   meta: CaptureMeta;
   generation: number;
   publishedAtMs: number;
+  /** Set by the stale check ('mark' policy): source pixels changed since this was recognized. */
+  stale?: boolean;
 }
 
 export type HitPresentation = {

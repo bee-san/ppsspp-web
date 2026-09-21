@@ -68,6 +68,8 @@ export interface ControllerDiagnostics {
   scansSkippedNoMotion: number;
   scansCompleted: number;
   scansStale: number;
+  /** Stale checks that found changed pixels under visible text. */
+  staleDetected: number;
   scansFailed: number;
   hitTests: number;
   captureFailures: number;
@@ -96,6 +98,11 @@ export interface ControllerInputs {
   pointerInside: boolean;
 }
 
+/** Minimum delay between movement-triggered captures after an unchanged image (MeikiPop: 0.1 s). */
+export const UNCHANGED_BACKOFF_MS = 100;
+/** Diagnostics coalescing interval. */
+export const DIAG_MIN_INTERVAL_MS = 100;
+
 export class OcrScanController {
   private settings: OcrSettings;
   private region: NormRegion = FULL_REGION;
@@ -113,6 +120,8 @@ export class OcrScanController {
   private generation = 0;
   private pointer: PointerSample | null = null;
   private pointerMovedSinceLastScan = true;
+  /** Time of the last "unchanged image" decision; movement captures back off UNCHANGED_BACKOFF_MS after it. */
+  private lastUnchangedAt = -Infinity;
   private hotkeyDown = false;
   private hotkeyWasDown = false;
   private lastSubmitAt = -Infinity;
@@ -137,6 +146,7 @@ export class OcrScanController {
     scansSkippedNoMotion: 0,
     scansCompleted: 0,
     scansStale: 0,
+    staleDetected: 0,
     scansFailed: 0,
     hitTests: 0,
     captureFailures: 0,
@@ -215,6 +225,9 @@ export class OcrScanController {
     this.inputs[k] = v;
     if (!this.eligible()) {
       this.suspend();
+      // OCR off / game stopped: the old result must not remain (or become) interactive.
+      // A hidden tab keeps its cache for a fast return (activation is already cleared).
+      if (k === 'enabled' || k === 'gameReady') this.clearPublished();
     } else {
       this.autoModeEntered = false;
       this.maybeEnterAutoMode();
@@ -268,16 +281,35 @@ export class OcrScanController {
     this.rescheduleStaleCheck();
   }
 
-  /** Pure CSS resize/zoom: transforms are the presentation layer's job; nothing to re-infer. */
-  geometryChanged(): void {
+  /**
+   * Pure CSS resize/zoom: transforms are the presentation layer's job; nothing to
+   * re-infer. A change of the *source* framebuffer size, however, invalidates
+   * cached captures (plan §6): the layout's crop rectangle no longer maps.
+   */
+  geometryChanged(sourceWidth?: number, sourceHeight?: number): void {
+    const pub = this.published;
+    if (pub && sourceWidth !== undefined && sourceHeight !== undefined && (pub.meta.sourceWidth !== sourceWidth || pub.meta.sourceHeight !== sourceHeight)) {
+      this.invalidate('source-size');
+      return;
+    }
     this.rehit();
   }
 
   stop(): void {
     this.stopped = true;
     this.suspend();
+    this.clearPublished();
+    if (this.diagTimer !== null) {
+      this.sched.clearTimeout(this.diagTimer);
+      this.diagTimer = null;
+    }
+  }
+
+  private clearPublished(): void {
+    this.lastCompared = null;
     if (this.published) {
       this.published = null;
+      this.diag.cachedLayout = false;
       this.ports.onLayout(null);
     }
   }
@@ -381,6 +413,11 @@ export class OcrScanController {
         this.emitDiag();
         return;
       }
+      const sinceUnchanged = now - this.lastUnchangedAt;
+      if (kind === 'movement' && sinceUnchanged < UNCHANGED_BACKOFF_MS) {
+        this.armThrottle(UNCHANGED_BACKOFF_MS - sinceUnchanged);
+        return;
+      }
       // Movement-only mode: no screenshot without pointer movement since the last one.
       if (kind === 'movement' && this.settings.scanOnMouseMove && !this.pointerMovedSinceLastScan) {
         this.diag.scansSkippedNoMotion++;
@@ -414,7 +451,6 @@ export class OcrScanController {
     try {
       captured = await this.ports.capture(this.region);
     } catch (e) {
-      this.diag.captureFailures++;
       this.ports.onError?.(e, 'capture');
     }
     this.diag.lastCaptureMs = this.sched.now() - t0;
@@ -446,8 +482,11 @@ export class OcrScanController {
       this.lastCompared.snapshotGeneration === generation &&
       this.framesEqual(this.lastCompared.bytes, bytes)
     ) {
-      // Identical image: reuse recognized geometry; no inference.
+      // Identical image: reuse recognized geometry; no inference. Back off further
+      // captures for a short period (MeikiPop sleeps 0.1 s after an identical shot)
+      // so a moving pointer does not trigger a readback + compare every frame.
       this.diag.scansSkippedUnchanged++;
+      this.lastUnchangedAt = this.sched.now();
       this.active = null;
       this.rehit();
       this.afterScan();
@@ -457,6 +496,9 @@ export class OcrScanController {
     this.diag.scansSubmitted++;
     this.lastSubmitAt = this.sched.now();
     const t1 = this.sched.now();
+    // The OCR port may transfer (detach) the frame buffer to its worker; keep an
+    // owned copy so unchanged-image detection and the stale check stay valid.
+    const kept = bytes.slice();
     try {
       const snapshot = await this.ports.ocr(captured);
       const dt = this.sched.now() - t1;
@@ -468,7 +510,7 @@ export class OcrScanController {
       this.diag.lastScanMs = dt;
       this.consecutiveFailures = 0;
       // Only successful inference marks the crop as "seen" (failures stay retryable).
-      this.lastCompared = { key, bytes, width: captured.frame.width, height: captured.frame.height, snapshotGeneration: generation };
+      this.lastCompared = { key, bytes: kept, width: captured.frame.width, height: captured.frame.height, snapshotGeneration: generation };
       const layout = this.ports.buildLayout(snapshot);
       this.published = { layout, snapshot, meta: captured.meta, generation, publishedAtMs: this.sched.now() };
       this.diag.cachedLayout = true;
@@ -524,8 +566,9 @@ export class OcrScanController {
    */
   private rescheduleStaleCheck(): void {
     this.clearTimer('stale');
-    if (!this.eligible() || !this.settings.staleCheckWhileTextVisible || !this.published) return;
+    if (!this.eligible() || this.settings.stalePolicy === 'off' || !this.published) return;
     if (this.settings.autoScan && !this.settings.scanOnMouseMove) return; // periodic already rescans
+    if (!this.activationAllowed()) return; // no spatial text visible (key not held): nothing to keep fresh
     this.staleTimer = this.sched.setTimeout(() => {
       this.staleTimer = null;
       void this.runStaleCheck();
@@ -552,18 +595,27 @@ export class OcrScanController {
         this.lastCompared.height === captured.frame.height &&
         this.framesEqual(this.lastCompared.bytes, bytes);
       if (!same) {
-        // Stale: remove spatial targets; next movement/hotkey may re-infer.
-        this.published = null;
-        this.lastCompared = null;
-        this.diag.cachedLayout = false;
-        this.ports.onLayout(null);
-        if (this.currentHit) {
-          this.currentHit = null;
-          this.ports.onHit(null, this.pointer, null);
+        this.pointerMovedSinceLastScan = true; // the next movement scan re-infers
+        this.lastCompared = null; // and must not be skipped as "unchanged"
+        this.diag.staleDetected++;
+        if (this.settings.stalePolicy === 'remove') {
+          // Retire spatial targets; next movement/hotkey may re-infer.
+          this.published = null;
+          this.diag.cachedLayout = false;
+          this.ports.onLayout(null);
+          if (this.currentHit) {
+            this.currentHit = null;
+            this.ports.onHit(null, this.pointer, null);
+          }
+          this.emitDiag();
+          return;
         }
-        this.pointerMovedSinceLastScan = true;
+        // 'mark': keep the text readable, flag it as possibly outdated, keep checking.
+        if (!this.published.stale) {
+          this.published = { ...this.published, stale: true };
+          this.ports.onLayout(this.published);
+        }
         this.emitDiag();
-        return;
       }
     }
     this.rescheduleStaleCheck();
@@ -597,7 +649,26 @@ export class OcrScanController {
     else this.staleTimer = null;
   }
 
+  private diagTimer: number | null = null;
+  private lastDiagAt = -Infinity;
+
+  /** Diagnostics are UI state; coalesce to ≤ 10 Hz so pointer events do not drive Angular updates. */
   private emitDiag(): void {
+    if (!this.ports.onDiagnostics) return;
+    const now = this.sched.now();
+    if (now - this.lastDiagAt >= DIAG_MIN_INTERVAL_MS) {
+      this.flushDiag(now);
+      return;
+    }
+    if (this.diagTimer !== null) return;
+    this.diagTimer = this.sched.setTimeout(() => {
+      this.diagTimer = null;
+      this.flushDiag(this.sched.now());
+    }, DIAG_MIN_INTERVAL_MS - (now - this.lastDiagAt));
+  }
+
+  private flushDiag(now: number): void {
+    this.lastDiagAt = now;
     this.diag.activeInference = this.active !== null;
     this.diag.pendingIntent = this.pendingIntent;
     this.diag.generation = this.generation;

@@ -10,11 +10,20 @@ export class OcrRegionSelector {
   private el: HTMLElement | null = null;
   private box: HTMLElement | null = null;
   private start: { x: number; y: number } | null = null;
-  private keyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private unsubscribeKeys: (() => void) | null = null;
 
+  /**
+   * @param onKey key-event source; defaults to a window capture listener. The
+   * session passes the runtime bridge's reading-key hook so Escape still works
+   * while the emulator's keyboard input is claimed.
+   */
   constructor(
     private readonly host: HTMLElement,
     private readonly viewport: () => BridgeViewport | null,
+    private readonly onKey: (fn: (e: KeyboardEvent) => void) => () => void = (fn) => {
+      window.addEventListener('keydown', fn, true);
+      return () => window.removeEventListener('keydown', fn, true);
+    },
   ) {}
 
   /** Resolves with a region, or null when cancelled. */
@@ -68,13 +77,9 @@ export class OcrRegionSelector {
         this.start = null;
         finish(r.w > 0.01 && r.h > 0.01 ? r : null);
       });
-      this.keyHandler = (e) => {
-        if (e.key === 'Escape') {
-          e.stopImmediatePropagation();
-          finish(null);
-        }
-      };
-      window.addEventListener('keydown', this.keyHandler, true);
+      this.unsubscribeKeys = this.onKey((e) => {
+        if (e.type === 'keydown' && e.key === 'Escape') finish(null);
+      });
     });
   }
 
@@ -91,8 +96,8 @@ export class OcrRegionSelector {
   }
 
   cancel(): void {
-    if (this.keyHandler) window.removeEventListener('keydown', this.keyHandler, true);
-    this.keyHandler = null;
+    this.unsubscribeKeys?.();
+    this.unsubscribeKeys = null;
     this.el?.remove();
     this.el = null;
     this.box = null;

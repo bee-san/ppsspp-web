@@ -42,8 +42,14 @@ export class OcrFrameSource {
   getViewport(): BridgeViewport | null {
     const canvas = this.bridge.getCanvas();
     if (!canvas) return null;
+    // Border-box minus the CSS border (the windowed canvas has a 1 px border):
+    // pointer→image mapping must use the padding box that the pixels occupy.
     const cssBox = canvas.getBoundingClientRect();
-    const box: CssRect = { left: cssBox.left, top: cssBox.top, width: cssBox.width, height: cssBox.height };
+    const bl = canvas.clientLeft;
+    const bt = canvas.clientTop;
+    const bw = Math.max(0, cssBox.width - (canvas.offsetWidth - canvas.clientWidth));
+    const bh = Math.max(0, cssBox.height - (canvas.offsetHeight - canvas.clientHeight));
+    const box: CssRect = { left: cssBox.left + bl, top: cssBox.top + bt, width: bw || cssBox.width, height: bh || cssBox.height };
     // The shell uses object-fit: contain in fullscreen; otherwise the canvas is
     // sized with aspect-ratio 16/9 and the backing store follows (SDL resize).
     const fit = this.bridge.isFullscreen() ? 'contain' : contentFit(canvas, box);
@@ -119,6 +125,8 @@ export class OcrFrameSource {
         scale: width / crop.w,
         imageWidth: width,
         imageHeight: height,
+        sourceWidth: vp.sourceWidth,
+        sourceHeight: vp.sourceHeight,
       },
     };
   }

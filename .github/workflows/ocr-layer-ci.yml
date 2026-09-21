@@ -37,3 +37,7 @@ jobs:
           npm i --no-save playwright@1.63.0
           npx playwright install --with-deps chromium
           node scripts/smoke-ocr.mjs
+      - name: Emulator E2E (real PPSSPP WASM, Japanese menu, OCR → DOM text)
+        run: |
+          cd wasm-page
+          node scripts/e2e-emulator.mjs

@@ -1521,6 +1521,9 @@ body.drive-connected .drive-sync-btn { display: inline-flex !important; }
 .ocr-paragraph.ocr-active .ocr-text-target { color: #fff; }
 .ocr-text-target.ocr-active-target { color: #ffe680; }
 .ocr-furigana .ocr-text-target { opacity: 0.85; }
+/* stale ('mark' policy): source pixels changed since recognition; text stays readable but is visibly flagged */
+.ocr-text-layer.ocr-stale .ocr-text-target { text-decoration: underline dotted rgba(255, 200, 120, 0.8); text-decoration-thickness: 1px; }
+.ocr-text-layer.ocr-stale .ocr-active-glyph { border-style: dashed; }
 .ocr-active-glyph {
   position: absolute; pointer-events: none;
   border: 1px solid rgba(255, 230, 128, 0.9);

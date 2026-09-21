@@ -42,6 +42,7 @@ export class OcrSessionService {
   private regionSelector: OcrRegionSelector | null = null;
   private client: MeikiOcrClient | null = null;
   private clientInit: Promise<void> | null = null;
+  private clientRequest: { profile: string; backend: string; threads: number } | null = null;
   private unsubscribeLifecycle: (() => void) | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private listeners: Array<() => void> = [];
@@ -72,14 +73,20 @@ export class OcrSessionService {
     );
     this.gate = new OcrInputGate(bridge, (n) => (this.textLayer?.contains(n) ?? false) || (this.popup?.contains(n) ?? false));
     this.gate.attach();
-    this.regionSelector = new OcrRegionSelector(host, () => this.frames?.getViewport() ?? null);
+    this.regionSelector = new OcrRegionSelector(host, () => this.frames?.getViewport() ?? null, (fn) => bridge.onKey(fn));
 
     this.controller = new OcrScanController(
       {
         capture: (region) => this.frames!.capture(region),
         ocr: async (captured) => {
           if (!this.client) throw new Error('OCR client not ready');
-          return this.client.scan(captured.frame, { transfer: 'move' });
+          // Local, opt-in debugging (plan §14E: recognition logs stay local and opt-in):
+          // localStorage.ppsspp_ocr_debug = "1" exposes the last capture + snapshot on window.
+          const debug = localStorage.getItem('ppsspp_ocr_debug') === '1';
+          const dbgCapture = debug ? { width: captured.frame.width, height: captured.frame.height, rgba: captured.frame.rgba.slice(0), meta: captured.meta } : null;
+          const snapshot = await this.client.scan(captured.frame, { transfer: 'move' });
+          if (debug) (window as unknown as { __ppssppOcrDebug?: unknown }).__ppssppOcrDebug = { capture: dbgCapture, snapshot };
+          return snapshot;
         },
         buildLayout: (snapshot) => {
           this.lastWarnings = snapshot.diagnostics.warnings;
@@ -127,8 +134,9 @@ export class OcrSessionService {
       this.controller?.pointerLeave();
       this.popup?.noHit(null);
     });
-    on(window, 'keydown', (e: KeyboardEvent) => this.onKey(e, true), { capture: true });
-    on(window, 'keyup', (e: KeyboardEvent) => this.onKey(e, false), { capture: true });
+    // Hotkey via the bridge's reading-key hook: delivered before the emulator and
+    // even while a reading input claim blocks keydown for the game.
+    this.listeners.push(this.bridge!.onKey((e: KeyboardEvent) => this.onKey(e, e.type === 'keydown')));
     on(window, 'blur', () => this.controller?.hotkeyUp());
     on(window, 'resize', () => this.syncGeometry(), { passive: true });
     on(window, 'scroll', () => this.syncGeometry(), { passive: true });
@@ -202,7 +210,8 @@ export class OcrSessionService {
     const s = this.settings();
     if (s.presentation === 'source-aligned') this.textLayer?.setLayout(p);
     else this.textLayer?.setLayout(null);
-    if (!p) this.popup?.markSourceChanged();
+    // Any change of the published source (cleared OR replaced) labels a pinned card as outdated.
+    this.popup?.markSourceChanged();
     this.patchDiag({ paragraphs: p?.layout.paragraphs.length ?? 0, lastOcrWarnings: this.lastWarnings });
   }
 
@@ -227,7 +236,7 @@ export class OcrSessionService {
     const vp = this.frames.getViewport();
     const hr = this.host.getBoundingClientRect();
     this.textLayer.setGeometry(vp, { left: hr.left, top: hr.top, width: hr.width, height: hr.height });
-    this.controller?.geometryChanged();
+    this.controller?.geometryChanged(vp?.sourceWidth, vp?.sourceHeight);
   }
 
   private refreshVisibility(): void {
@@ -252,15 +261,20 @@ export class OcrSessionService {
     this.controller?.setEnabled(s.enabled && s.modelDownloadConsent);
     this.textLayer?.setOptions({ strategy: s.textLayerStrategy, fontScale: s.fontScale });
     this.popup?.setOptions({ positionMode: s.popupPositionMode, fontScale: s.fontScale, holdMs: 350 });
-    // One scannable presentation at a time.
-    if (s.presentation === 'popup') this.textLayer?.setLayout(null);
+    // One scannable presentation at a time; nothing when OCR is off.
+    const enabled = s.enabled && s.modelDownloadConsent;
+    if (!enabled || s.presentation === 'popup') this.textLayer?.setLayout(null);
     else {
       this.popup?.close();
       this.textLayer?.setLayout(this.controller?.getPublished() ?? null);
     }
+    if (!enabled) this.popup?.close();
     this.refreshVisibility();
-    if (this.client && (this.client.profile !== s.ocrProfile || (this.client.backend !== s.ocrBackend && s.ocrBackend === 'webgpu'))) {
-      // Profile/backend changes need a new client; results from the old one are ineligible.
+    // Profile/backend/thread changes need a new client (old results become ineligible via
+    // the controller's model generation). Compare against what was *requested* at creation,
+    // not the effective backend, so a WebGPU→WASM fallback does not re-create on every cosmetic edit.
+    const req = this.clientRequest;
+    if (this.client && req && (req.profile !== s.ocrProfile || req.backend !== s.ocrBackend || req.threads !== s.wasmThreads)) {
       void this.recreateClient();
     }
   }
@@ -290,12 +304,12 @@ export class OcrSessionService {
 
   async selectRegion(): Promise<void> {
     if (!this.regionSelector) return;
-    this.gate?.set('settings', true);
+    this.gate?.set('selection', true);
     try {
       const r = await this.regionSelector.select();
       if (r) this.setRegion(r);
     } finally {
-      this.gate?.set('settings', false);
+      this.gate?.set('selection', false);
     }
   }
 
@@ -375,10 +389,12 @@ export class OcrSessionService {
           wasmThreads: s.wasmThreads,
           vertical: 'lazy',
           maxInputPixels: s.maxCapturePixels,
-          worker: new Worker(new URL('./ocr.worker', import.meta.url), { type: 'module', name: 'meikiocr-web' }),
+          // Factory (not a single instance) so the library can perform its bounded restart after a fatal worker error.
+          workerFactory: () => new Worker(new URL('./ocr.worker', import.meta.url), { type: 'module', name: 'meikiocr-web' }),
           onProgress: (e) => this.onProgress(e),
         });
         this.client = client;
+        this.clientRequest = { profile: s.ocrProfile, backend: s.ocrBackend, threads: s.wasmThreads };
         this.controller?.setModelSetId(client.modelSetId);
         this.controller?.setModelsReady(true);
         this.patchDiag({ phase: 'ready', message: `Ready (${client.backend})`, progress: null, backend: client.backend, modelSetId: client.modelSetId });
@@ -395,6 +411,7 @@ export class OcrSessionService {
   private async recreateClient(): Promise<void> {
     const old = this.client;
     this.client = null;
+    this.clientRequest = null;
     this.controller?.setModelsReady(false);
     await old?.dispose().catch(() => undefined);
     await this.ensureModels();

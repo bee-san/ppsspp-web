@@ -81,6 +81,14 @@ export class OcrTextLayer {
 
   /** Atomically replace the presented snapshot (null clears). */
   setLayout(published: PublishedLayout | null): void {
+    // Same snapshot, only the stale flag changed: toggle a class, never rebuild
+    // (the user may be selecting text or an extension popup may be open).
+    if (published && this.published && published.snapshot === this.published.snapshot && published.generation === this.published.generation) {
+      this.published = published;
+      this.root.classList.toggle('ocr-stale', !!published.stale);
+      return;
+    }
+    this.root.classList.toggle('ocr-stale', !!published?.stale);
     const next = document.createDocumentFragment();
     const placed: Placed[] = [];
     const glyphEls = new Map<string, HTMLElement>();
@@ -159,6 +167,25 @@ export class OcrTextLayer {
       const thickness = pl.orientation === 'vertical' ? css.width : css.height;
       st.fontSize = `${Math.max(6, thickness * 0.86 * this.options.fontScale)}px`;
       st.lineHeight = pl.orientation === 'vertical' ? 'normal' : `${css.height}px`;
+      st.letterSpacing = '0';
+    }
+    // Second pass (line-text strategy): fit each line's natural advance to its source
+    // extent along the reading axis with letter-spacing, so the DOM position of every
+    // character tracks its OCR glyph box (extension caret hit ≈ controller hit).
+    // Measuring here forces one layout per reposition (layout/resize), never per pointer event.
+    if (this.options.strategy === 'line-text') {
+      for (const pl of this.placed) {
+        const n = pl.el.textContent?.length ?? 0;
+        if (n < 2) continue;
+        const vertical = pl.orientation === 'vertical';
+        const natural = vertical ? pl.el.scrollHeight : pl.el.scrollWidth;
+        const target = vertical ? parseFloat(pl.el.style.height) : parseFloat(pl.el.style.width);
+        if (!natural || !target) continue;
+        const fontPx = parseFloat(pl.el.style.fontSize) || 1;
+        // letter-spacing applies after every character (incl. the last): total = natural + n*ls
+        const ls = Math.max(-0.25 * fontPx, (target - natural) / n);
+        pl.el.style.letterSpacing = `${ls}px`;
+      }
     }
     if (this.activeGlyph && !this.highlight.hidden) this.placeHighlight();
   }
