@@ -114,8 +114,10 @@ console.log("buffer:", await page.locator(".mining-buffered").innerText());
 // (Cross = Z), wait so the flip lies inside the clip, and mine.
 await page.waitForFunction(() => Number(/frames \/ ([\d.]+) s/.exec(document.querySelector(".mining-buffered")?.textContent ?? "")?.[1] ?? 0) >= 9, null, { timeout: 120_000, ...POLL }).catch(() => {});
 console.log("buffer before mining:", await page.locator(".mining-buffered").innerText());
+// Hold the key for several emulator frames: PPSSPP samples the pad once per frame and a slow
+// CI runner (SwiftShader, ~5–10 fps) misses Playwright's instantaneous press.
 await page.click("#canvas", { position: { x: 20, y: 20 } });
-await page.keyboard.press("z");
+await page.keyboard.down("z"); await page.waitForTimeout(500); await page.keyboard.up("z");
 await page.waitForTimeout(2500);
 await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "§", code: "Backquote", bubbles: true, cancelable: true })));
 await page.waitForSelector(".mining-picker", { timeout: 30_000 });
