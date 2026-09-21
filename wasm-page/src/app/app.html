@@ -26,6 +26,7 @@
 
     <div class="hbar-group" id="displayGroup">
       <button id="fullscreenBtn" class="icon-btn" title="Fullscreen"><i data-lucide="maximize"></i></button>
+      <button id="ocrToggleBtn" type="button" class="icon-btn" [class.active]="ocr.settings().enabled" [attr.aria-pressed]="ocr.settings().enabled" title="OCR text (local, for dictionary extensions)" (click)="ocr.toggleEnabled()"><i data-lucide="eye"></i><span class="btn-lbl"> OCR</span></button>
       <select id="gamepadSelect" class="btn" title="Active controller">
         <option value="-1">All controllers</option>
       </select>
@@ -56,6 +57,7 @@
   <div class="body-main">
     <section class="stage">
       <canvas id="canvas" width="1280" height="720" tabindex="0"></canvas>
+      <div id="ocrOverlay" class="ocr-overlay" aria-live="off"></div>
       <div id="idleOverlay">
         <div class="idle-content">
           <div class="idle-copy">
@@ -108,6 +110,7 @@
           <option value="network">Network</option>
           <option value="drive">Google Drive</option>
           <option value="storage">OPFS Storage</option>
+          <option value="ocr">OCR Text</option>
           <option value="info">System</option>
           <option value="log">Console</option>
           <option value="about">About</option>
@@ -120,9 +123,14 @@
         <div class="tab"        data-tab="network"><i data-lucide="radio-tower"></i> Network</div>
         <div class="tab"        data-tab="drive"><i data-lucide="cloud"></i> Drive</div>
         <div class="tab"        data-tab="storage"><i data-lucide="hard-drive"></i> OPFS</div>
+        <div class="tab"        data-tab="ocr"><i data-lucide="eye"></i> OCR</div>
         <div class="tab"        data-tab="info"><i data-lucide="settings"></i> System</div>
         <div class="tab"        data-tab="log"><i data-lucide="terminal"></i> Console</div>
         <div class="tab"        data-tab="about"><i data-lucide="info"></i> About</div>
+      </div>
+
+      <div class="tab-panel" id="tabOcr">
+        <app-ocr-settings></app-ocr-settings>
       </div>
 
       <div class="tab-panel active" id="tabLibrary">

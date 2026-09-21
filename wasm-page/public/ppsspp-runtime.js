@@ -362,6 +362,84 @@ let selectedGame = null;
 let selectedStoredGame = null;
 let started      = false;
 let runtimeReady = false;
+
+/* ── Reading bridge (OCR text layer) ─────────────────────────────
+ * Narrow, versioned surface consumed by wasm-page/src/app/ocr/. It exposes
+ * lifecycle/viewport state and a balanced input claim; it performs no OCR,
+ * no capture and no network. Pixel capture is done by the OCR layer from
+ * the game canvas element itself.
+ */
+const ReadingBridge = (() => {
+  const listeners = new Set();
+  const state = {
+    phase: "idle",           // idle | loading | running | aborted
+    gameSessionId: 0,        // increments per runtime start
+    sceneEpoch: 0,           // increments on hard content changes we can observe
+    gameId: null,            // best-effort: disc-style id or file name
+    fullscreen: false,
+    documentVisible: !document.hidden,
+  };
+  const claims = new Map();  // reason -> count
+  const emit = (ev) => { for (const l of [...listeners]) { try { l(ev); } catch(e) { console.error("ReadingBridge listener failed", e); } } };
+  const setPhase = (phase) => { if (state.phase === phase) return; state.phase = phase; emit({ type: "phase", phase }); };
+  const bumpScene = (reason) => { state.sceneEpoch++; emit({ type: "scene-epoch", sceneEpoch: state.sceneEpoch, reason }); };
+  const setGame = (gameId) => {
+    const id = gameId ? String(gameId).split("/").pop() : null;
+    if (id === state.gameId) return;
+    state.gameId = id;
+    emit({ type: "game-changed", gameId: id });
+    bumpScene("game-changed");
+  };
+  const anyClaim = () => claims.size > 0;
+  // Installed before SDL registers its own window listeners (which happens when
+  // the emulator starts), so stopImmediatePropagation() reliably precedes them.
+  // Only keydown/keypress are blocked; keyup always passes to avoid stuck buttons.
+  const keyGate = (e) => {
+    if (!anyClaim()) return;
+    if (e.type === "keyup") return;
+    e.stopImmediatePropagation();
+  };
+  window.addEventListener("keydown",  keyGate, true);
+  window.addEventListener("keypress", keyGate, true);
+  document.addEventListener("visibilitychange", () => {
+    state.documentVisible = !document.hidden;
+    emit({ type: "visibility", visible: state.documentVisible });
+  });
+  document.addEventListener("fullscreenchange", () => {
+    state.fullscreen = !!fullscreenElement();
+    emit({ type: "fullscreen", active: state.fullscreen });
+  });
+  canvas?.addEventListener("webglcontextlost", () => emit({ type: "context-lost" }));
+
+  const api = Object.freeze({
+    version: 1,
+    getState: () => ({ ...state }),
+    getCanvas: () => canvas,
+    getStage: () => stageEl,
+    subscribeLifecycle(cb) { listeners.add(cb); return () => listeners.delete(cb); },
+    /** Balanced claim: returns a release function. While any claim is active, keydown does not reach the emulator. */
+    setReadingInputClaim(reason, active) {
+      const key = String(reason || "reading");
+      if (active) {
+        claims.set(key, (claims.get(key) || 0) + 1);
+        let released = false;
+        return () => { if (released) return; released = true; api.setReadingInputClaim(key, false); };
+      }
+      const n = (claims.get(key) || 0) - 1;
+      if (n <= 0) claims.delete(key); else claims.set(key, n);
+      return () => {};
+    },
+    hasInputClaim: anyClaim,
+    isFullscreenActive: () => !!fullscreenElement(),
+    requestFullscreen: () => requestBrowserFullscreen(),
+    exitFullscreen: () => exitBrowserFullscreen(),
+    // internal hooks used by this runtime
+    _setPhase: setPhase, _bumpScene: bumpScene, _setGame: setGame,
+    _started() { state.gameSessionId++; setPhase("loading"); emit({ type: "scene-epoch", sceneEpoch: ++state.sceneEpoch, reason: "runtime-start" }); },
+  });
+  window.PpssppReadingBridge = api;
+  return api;
+})();
 const trackedAudioContexts = [];
 const audioDebug = {
   callbacks: 0, nonsilent: 0, peak: 0, rate: 0, deviceStarted: false,
@@ -3092,6 +3170,7 @@ async function loadGameAtRuntime(file) {
     try { FS.mkdirTree(VIRTUAL_GAME_DIR); } catch(e) {}
     FS.writeFile(path, bytes);
     await opfsPutGame(file.name, bytes);
+    ReadingBridge._bumpScene("runtime-game-mounted");
     refreshEmulatorGameBrowser("mounted " + safe);
     log("Game file ready at " + path + " and saved to OPFS. Open it from PPSSPP\u2019s game browser (Home \u2192 Games).", "ok");
     showToast("✓ " + file.name + " loaded → open from PPSSPP game browser", 5000);
@@ -4370,6 +4449,7 @@ async function start() {
   }
   sessionStorage.removeItem(COI_RELOAD_KEY);
   started = true;
+  ReadingBridge._started();
   document.body.classList.add("emulator-started");
   log("Launch button clicked.", "info");
   setStartButtonMode("loading");
@@ -4403,7 +4483,9 @@ async function start() {
     webglContextAttributes: {
       powerPreference: chosenPowerPref,
       alpha: false, antialias: false, depth: true, stencil: true,
-      preserveDrawingBuffer: false, desynchronized: true,
+      // OCR capture fallback: opt-in only, see wasm-page/src/app/ocr/ocr-frame-source.ts.
+      preserveDrawingBuffer: localStorage.getItem("ppsspp_ocr_preserve_drawing_buffer") === "1",
+      desynchronized: true,
       failIfMajorPerformanceCaveat: false,
     },
     SDL2: preAudioCtx ? { audioContext: preAudioCtx } : {},
@@ -4456,6 +4538,8 @@ async function start() {
     onRuntimeInitialized() {
       log("Runtime initialized.", "ok");
       runtimeReady = true;
+      ReadingBridge._setGame(gameArg);
+      ReadingBridge._setPhase("running");
       setStatus(gameArg ? "Game running" : "Library ready", "ok");
       hideLoading();
       setStartButtonMode("running");
@@ -4478,6 +4562,7 @@ async function start() {
       log("Runtime abort: " + reason, "err");
       setStatus("Abort: " + reason, "err");
       runtimeReady = false;
+      ReadingBridge._setPhase("aborted");
       hideLoading();
     }
   };

@@ -1490,3 +1490,109 @@ body.drive-connected .drive-sync-btn { display: inline-flex !important; }
 }
 .opfs-file-actions button:hover { background: var(--surface3); border-color: var(--border2); }
 .opfs-file-actions button.del:hover { background: rgba(255,95,95,.12); color: var(--danger); border-color: rgba(255,95,95,.3); }
+
+/* ── OCR text layer (wasm-page/src/app/ocr) ─────────────────────────
+ * The overlay root is pointer-transparent; only recognized text targets are
+ * interactive. Text is real light-DOM text so dictionary extensions can scan it.
+ */
+.ocr-overlay {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  overflow: visible;
+}
+.ocr-text-layer { position: absolute; inset: 0; pointer-events: none; }
+.ocr-text-layer.ocr-hidden .ocr-text-target { pointer-events: none; color: transparent; }
+.ocr-paragraph { position: absolute; inset: 0; pointer-events: none; }
+.ocr-text-target {
+  position: absolute;
+  pointer-events: auto;
+  cursor: text;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.92);
+  font-family: "Noto Sans CJK JP", "Hiragino Sans", "Yu Gothic", "Meiryo", "IPAGothic", sans-serif;
+  text-shadow: 0 0 2px #000, 0 0 4px #000;
+  -webkit-user-select: text; user-select: text;
+  overflow: visible;
+  letter-spacing: 0;
+  box-sizing: border-box;
+}
+.ocr-vertical .ocr-text-target { writing-mode: vertical-rl; text-orientation: upright; }
+.ocr-paragraph.ocr-active .ocr-text-target { color: #fff; }
+.ocr-text-target.ocr-active-target { color: #ffe680; }
+.ocr-furigana .ocr-text-target { opacity: 0.85; }
+.ocr-active-glyph {
+  position: absolute; pointer-events: none;
+  border: 1px solid rgba(255, 230, 128, 0.9);
+  background: rgba(255, 230, 128, 0.18);
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+
+/* Plain-text card (MeikiPop placement; no definitions) */
+.ocr-popup {
+  position: absolute; z-index: 4;
+  pointer-events: auto;
+  max-width: min(60%, 520px);
+  background: rgba(24, 26, 32, 0.96);
+  color: #f0f0f0;
+  border: 1px solid var(--border, #333);
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: var(--shadow, 0 4px 16px rgba(0,0,0,.5));
+  font-size: 14px;
+  -webkit-user-select: text; user-select: text;
+}
+.ocr-popup.ocr-pinned { border-color: var(--accent, #00d4aa); }
+.ocr-popup-bar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,.08);
+  -webkit-user-select: none; user-select: none;
+}
+.ocr-popup-status { flex: 1; font-size: 11px; color: var(--muted, #999); }
+.ocr-popup-btn {
+  font-size: 11px; padding: 2px 8px; line-height: 1.4;
+  background: rgba(255,255,255,.06); color: inherit; border: 1px solid rgba(255,255,255,.12); border-radius: 4px;
+}
+.ocr-popup-btn:hover { background: rgba(255,255,255,.12); }
+.ocr-popup-text {
+  padding: 8px 10px; line-height: 1.7; font-size: 1.25em;
+  font-family: "Noto Sans CJK JP", "Hiragino Sans", "Yu Gothic", "Meiryo", "IPAGothic", sans-serif;
+  word-break: break-all;
+}
+.ocr-popup-active { color: #ffe680; text-decoration: underline; text-underline-offset: 3px; }
+
+/* Region selection */
+.ocr-region-select {
+  position: absolute; inset: 0; pointer-events: auto; cursor: crosshair; z-index: 5;
+  background: rgba(0,0,0,.25);
+}
+.ocr-region-hint {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,.7); color: #fff; font-size: 12px; padding: 4px 10px; border-radius: 12px;
+  pointer-events: none;
+}
+.ocr-region-box {
+  position: absolute; pointer-events: none;
+  border: 1px dashed var(--accent, #00d4aa);
+  background: rgba(0, 212, 170, .12);
+}
+
+/* Settings panel */
+.ocr-settings { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+.ocr-row { display: flex; align-items: center; gap: 8px; }
+.ocr-row-main { justify-content: space-between; }
+.ocr-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.ocr-status { margin: 0; color: var(--muted, #999); }
+.ocr-status[data-phase="error"] { color: var(--danger, #ff5c5c); }
+.ocr-status[data-phase="ready"] { color: var(--accent, #00d4aa); }
+.ocr-progress { display: inline-block; width: 120px; height: 6px; background: rgba(255,255,255,.08); border-radius: 3px; vertical-align: middle; margin: 0 6px; overflow: hidden; }
+.ocr-progress-bar { display: block; height: 100%; background: var(--accent, #00d4aa); }
+.ocr-consent { display: flex; gap: 8px; }
+.ocr-grid { display: flex; flex-direction: column; gap: 8px; }
+.ocr-grid > label { display: flex; flex-direction: column; gap: 4px; }
+.ocr-grid > label.ocr-toggle { flex-direction: row; }
+.ocr-inline { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ocr-muted { color: var(--muted, #999); margin: 0; }
+.ocr-mode { font-style: italic; }
+.ocr-diag { font-size: 10px; white-space: pre-wrap; background: rgba(0,0,0,.35); padding: 6px; border-radius: 4px; margin: 0; }
+#ocrToggleBtn.active { color: var(--accent, #00d4aa); }

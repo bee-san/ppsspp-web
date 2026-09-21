@@ -1,0 +1,216 @@
+/**
+ * OcrTextLayer — the dictionary-readable DOM layer (Plan 2 §9).
+ *
+ * Non-negotiables implemented here:
+ *  - Real light-DOM text nodes (`textContent`), never innerHTML from OCR output.
+ *  - One logical container per paragraph, children in reading order, no
+ *    whitespace-only nodes or <br> inserted between visual lines.
+ *  - Only text targets are interactive; the root and highlights are
+ *    pointer-transparent.
+ *  - Snapshot replacement is atomic; pointer movement only toggles classes.
+ *
+ * Two render strategies are provided so the extension gate (§14C) can pick:
+ *  - `line-text`: one span per source line, text = line text, scaled to the line box.
+ *  - `glyph-spans`: one span per glyph, positioned to its box, inside the paragraph.
+ */
+import type { LayoutGlyph, LayoutParagraph, LayoutSnapshot, TextHit } from 'meikiocr-web/meikipop';
+import type { OcrLine } from 'meikiocr-web';
+import type { BridgeViewport, CssRect, PublishedLayout, TextLayerStrategy } from './ocr-types';
+import { imageRectToCss } from './ocr-coordinate-map';
+
+export interface TextLayerOptions {
+  strategy: TextLayerStrategy;
+  fontScale: number;
+}
+
+interface Placed {
+  el: HTMLElement;
+  box: readonly [number, number, number, number];
+  orientation: 'horizontal' | 'vertical';
+}
+
+export class OcrTextLayer {
+  private readonly root: HTMLElement;
+  private published: PublishedLayout | null = null;
+  private placed: Placed[] = [];
+  private glyphEls = new Map<string, HTMLElement>();
+  private paragraphEls = new Map<string, HTMLElement>();
+  private highlight: HTMLElement;
+  private activeParagraph: HTMLElement | null = null;
+  private activeGlyph: HTMLElement | null = null;
+  private viewport: BridgeViewport | null = null;
+  private hostRect: CssRect = { left: 0, top: 0, width: 0, height: 0 };
+  private options: TextLayerOptions;
+  private visible = true;
+
+  constructor(
+    private readonly host: HTMLElement,
+    options: TextLayerOptions,
+  ) {
+    this.options = options;
+    this.root = document.createElement('div');
+    this.root.className = 'ocr-text-layer';
+    this.root.setAttribute('lang', 'ja');
+    this.root.dataset['ocrStrategy'] = options.strategy;
+    this.highlight = document.createElement('div');
+    this.highlight.className = 'ocr-active-glyph';
+    this.highlight.hidden = true;
+    this.root.appendChild(this.highlight);
+    host.appendChild(this.root);
+  }
+
+  setOptions(o: TextLayerOptions): void {
+    const rebuild = o.strategy !== this.options.strategy;
+    this.options = o;
+    this.root.dataset['ocrStrategy'] = o.strategy;
+    if (rebuild && this.published) this.setLayout(this.published);
+    else this.reposition();
+  }
+
+  setVisible(v: boolean): void {
+    this.visible = v;
+    this.root.classList.toggle('ocr-hidden', !v);
+  }
+
+  /** Geometry inputs: viewport (source/content) and the host's own CSS rect. */
+  setGeometry(viewport: BridgeViewport | null, hostRect: CssRect): void {
+    this.viewport = viewport;
+    this.hostRect = hostRect;
+    this.reposition();
+  }
+
+  /** Atomically replace the presented snapshot (null clears). */
+  setLayout(published: PublishedLayout | null): void {
+    const next = document.createDocumentFragment();
+    const placed: Placed[] = [];
+    const glyphEls = new Map<string, HTMLElement>();
+    const paragraphEls = new Map<string, HTMLElement>();
+    this.published = published;
+
+    if (published) {
+      const lineById = new Map<string, OcrLine>(published.snapshot.lines.map((l) => [l.id, l]));
+      for (const p of published.layout.paragraphs) {
+        const pEl = document.createElement('div');
+        pEl.className = 'ocr-paragraph' + (p.isFurigana ? ' ocr-furigana' : '') + (p.orientation === 'vertical' ? ' ocr-vertical' : ' ocr-horizontal');
+        pEl.dataset['ocrParagraph'] = p.id;
+        if (this.options.strategy === 'glyph-spans') this.buildGlyphSpans(p, pEl, placed, glyphEls);
+        else this.buildLineText(p, pEl, lineById, placed, glyphEls);
+        paragraphEls.set(p.id, pEl);
+        next.appendChild(pEl);
+      }
+    }
+
+    // Swap children atomically; keep the highlight node.
+    for (const child of Array.from(this.root.children)) if (child !== this.highlight) child.remove();
+    this.root.appendChild(next);
+    this.placed = placed;
+    this.glyphEls = glyphEls;
+    this.paragraphEls = paragraphEls;
+    this.activeGlyph = null;
+    this.activeParagraph = null;
+    this.highlight.hidden = true;
+    this.reposition();
+  }
+
+  private buildLineText(
+    p: LayoutParagraph,
+    pEl: HTMLElement,
+    lineById: Map<string, OcrLine>,
+    placed: Placed[],
+    glyphEls: Map<string, HTMLElement>,
+  ): void {
+    for (const lineId of p.lineIds) {
+      const line = lineById.get(lineId);
+      if (!line) continue;
+      const span = document.createElement('span');
+      span.className = 'ocr-line ocr-text-target';
+      span.dataset['ocrLine'] = line.id;
+      span.textContent = line.text; // text node, not markup
+      pEl.appendChild(span);
+      placed.push({ el: span, box: line.box, orientation: line.orientation });
+      // glyph → containing line element, for emphasis
+      for (const g of line.glyphs) glyphEls.set(g.id, span);
+    }
+  }
+
+  private buildGlyphSpans(p: LayoutParagraph, pEl: HTMLElement, placed: Placed[], glyphEls: Map<string, HTMLElement>): void {
+    for (const g of p.glyphs) {
+      const span = document.createElement('span');
+      span.className = 'ocr-glyph ocr-text-target';
+      span.dataset['ocrGlyph'] = g.glyphId;
+      span.textContent = g.text;
+      pEl.appendChild(span);
+      placed.push({ el: span, box: g.box, orientation: p.orientation });
+      glyphEls.set(g.glyphId, span);
+    }
+  }
+
+  private reposition(): void {
+    const vp = this.viewport;
+    if (!vp || !this.published) return;
+    const meta = this.published.meta;
+    for (const pl of this.placed) {
+      const css = imageRectToCss(pl.box, meta, vp.contentRect, vp.sourceWidth, vp.sourceHeight);
+      const st = pl.el.style;
+      st.left = `${css.left - this.hostRect.left}px`;
+      st.top = `${css.top - this.hostRect.top}px`;
+      st.width = `${css.width}px`;
+      st.height = `${css.height}px`;
+      const thickness = pl.orientation === 'vertical' ? css.width : css.height;
+      st.fontSize = `${Math.max(6, thickness * 0.86 * this.options.fontScale)}px`;
+      st.lineHeight = pl.orientation === 'vertical' ? 'normal' : `${css.height}px`;
+    }
+    if (this.activeGlyph && !this.highlight.hidden) this.placeHighlight();
+  }
+
+  private activeGlyphBox: readonly [number, number, number, number] | null = null;
+
+  private placeHighlight(): void {
+    const vp = this.viewport;
+    if (!vp || !this.published || !this.activeGlyphBox) return;
+    const css = imageRectToCss(this.activeGlyphBox, this.published.meta, vp.contentRect, vp.sourceWidth, vp.sourceHeight);
+    const st = this.highlight.style;
+    st.left = `${css.left - this.hostRect.left}px`;
+    st.top = `${css.top - this.hostRect.top}px`;
+    st.width = `${css.width}px`;
+    st.height = `${css.height}px`;
+  }
+
+  /** Emphasize the hit paragraph/glyph; only class toggles, no rebuild. */
+  setHit(hit: TextHit | null): void {
+    const pEl = hit ? this.paragraphEls.get(hit.paragraphId) ?? null : null;
+    const gEl = hit ? this.glyphEls.get(hit.glyphId) ?? null : null;
+    if (this.activeParagraph !== pEl) {
+      this.activeParagraph?.classList.remove('ocr-active');
+      pEl?.classList.add('ocr-active');
+      this.activeParagraph = pEl;
+    }
+    if (this.activeGlyph !== gEl) {
+      this.activeGlyph?.classList.remove('ocr-active-target');
+      gEl?.classList.add('ocr-active-target');
+      this.activeGlyph = gEl;
+    }
+    this.activeGlyphBox = hit ? hit.sourceBox : null;
+    this.highlight.hidden = !hit || !this.visible;
+    if (hit) this.placeHighlight();
+  }
+
+  /** Whether a DOM node belongs to this layer (for input arbitration). */
+  contains(node: Node | null): boolean {
+    return !!node && this.root.contains(node);
+  }
+
+  glyphFor(g: LayoutGlyph): HTMLElement | undefined {
+    return this.glyphEls.get(g.glyphId);
+  }
+
+  dispose(): void {
+    this.root.remove();
+    this.placed = [];
+    this.glyphEls.clear();
+    this.paragraphEls.clear();
+  }
+}
+
+/** Re-export for consumers that only need the type. */
+export type { LayoutSnapshot };

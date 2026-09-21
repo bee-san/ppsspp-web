@@ -1,0 +1,120 @@
+<section class="ocr-settings" (focusin)="onFocusIn()" (focusout)="onFocusOut($event)">
+  <div class="ocr-row ocr-row-main">
+    <label class="ocr-toggle">
+      <input type="checkbox" [checked]="s().enabled" (change)="ocr.toggleEnabled()" />
+      <span><strong>OCR text</strong> — read game text with your dictionary extension</span>
+    </label>
+    <button type="button" class="btn" title="Re-scan now (bypasses unchanged-image check)" (click)="ocr.refresh()" [disabled]="diag().phase !== 'ready'">Refresh</button>
+  </div>
+
+  <p class="ocr-status" [attr.data-phase]="diag().phase">
+    {{ diag().message }}
+    @if (progressPct() !== null) {
+      <span class="ocr-progress"><span class="ocr-progress-bar" [style.width.%]="progressPct()"></span></span>
+      <span class="ocr-progress-label">{{ progressPct() }}%</span>
+    }
+  </p>
+
+  @if (consentRequired()) {
+    <div class="ocr-consent">
+      <button type="button" class="primary" (click)="ocr.grantConsent()">Download models &amp; enable</button>
+      <button type="button" class="btn" (click)="ocr.declineConsent()">Not now</button>
+    </div>
+  }
+
+  @if (s().enabled) {
+    <div class="ocr-grid">
+      <label>Text area
+        <span class="ocr-inline">
+          <span class="ocr-muted">{{ ocr.regionLabel() }}</span>
+          <button type="button" class="btn" (click)="ocr.selectRegion()">Select text area</button>
+          <button type="button" class="btn" (click)="ocr.resetRegion()">Full viewport</button>
+        </span>
+      </label>
+
+      <label>Presentation
+        <select class="btn" [value]="s().presentation" (change)="onSelect('presentation', $event)">
+          <option value="source-aligned">Text over the game (source-aligned)</option>
+          <option value="popup">Plain-text card following the pointer</option>
+        </select>
+      </label>
+
+      @if (s().presentation === 'source-aligned') {
+        <label>Text layout
+          <select class="btn" [value]="s().textLayerStrategy" (change)="onSelect('textLayerStrategy', $event)">
+            <option value="line-text">Continuous line text (default)</option>
+            <option value="glyph-spans">Per-character positioned spans (experimental)</option>
+          </select>
+        </label>
+      } @else {
+        <label>Card position
+          <select class="btn" [value]="s().popupPositionMode" (change)="onSelect('popupPositionMode', $event)">
+            <option value="visual_novel_mode">Visual novel mode</option>
+            <option value="flip_horizontally">Flip horizontally</option>
+            <option value="flip_vertically">Flip vertically</option>
+            <option value="flip_both">Flip both</option>
+          </select>
+        </label>
+      }
+
+      <label class="ocr-toggle"><input type="checkbox" [checked]="s().autoScan" (change)="onCheckbox('autoScan', $event)" /> Auto scan</label>
+      <label class="ocr-toggle"><input type="checkbox" [checked]="s().scanOnMouseMove" (change)="onCheckbox('scanOnMouseMove', $event)" [disabled]="!s().autoScan" /> Scan on pointer movement (otherwise periodic)</label>
+      <label class="ocr-toggle"><input type="checkbox" [checked]="s().lookupsWithoutHotkey" (change)="onCheckbox('lookupsWithoutHotkey', $event)" [disabled]="!s().autoScan" /> Text follows the pointer without holding a key</label>
+
+      <label>Activation key
+        <select class="btn" [value]="s().hotkey" (change)="onSelect('hotkey', $event)">
+          <option value="shift">Shift</option>
+          <option value="control">Control</option>
+          <option value="alt">Alt</option>
+          <option value="meta">Meta</option>
+          <option value="none">None</option>
+        </select>
+      </label>
+
+      <label>Minimum scan interval (ms)
+        <input class="btn" type="number" min="100" max="10000" step="50" [value]="s().scanIntervalMs" (change)="onNumber('scanIntervalMs', $event)" />
+      </label>
+
+      <label>Text size
+        <input type="range" min="0.5" max="2" step="0.1" [value]="s().fontScale" (input)="onNumber('fontScale', $event)" />
+      </label>
+
+      <label class="ocr-toggle"><input type="checkbox" [checked]="s().staleCheckWhileTextVisible" (change)="onCheckbox('staleCheckWhileTextVisible', $event)" /> Retire text when the image changes (checks pixels at the scan interval)</label>
+
+      <p class="ocr-muted ocr-mode">{{ ocr.modeDescription() }}</p>
+
+      <details>
+        <summary>Advanced</summary>
+        <label>OCR profile
+          <select class="btn" [value]="s().ocrProfile" (change)="onSelect('ocrProfile', $event)">
+            <option value="meikipop-v2">meikipop-v2 (MeikiPop parity, default)</option>
+            <option value="meikiocr-native">meikiocr-native (BGR reference)</option>
+          </select>
+        </label>
+        <label>Backend
+          <select class="btn" [value]="s().ocrBackend" (change)="onSelect('ocrBackend', $event)">
+            <option value="wasm">WASM (tested)</option>
+            <option value="webgpu">WebGPU (experimental; falls back to WASM)</option>
+          </select>
+        </label>
+        <label class="ocr-toggle"><input type="checkbox" [checked]="s().showDiagnostics" (change)="onCheckbox('showDiagnostics', $event)" /> Show diagnostics</label>
+        <div class="ocr-inline">
+          <button type="button" class="btn" (click)="ocr.clearModelCache()">Delete downloaded OCR models</button>
+          <button type="button" class="btn danger" (click)="ocr.resetPreferences()">Reset OCR preferences</button>
+        </div>
+        <p class="ocr-muted">These actions never touch games, saves or other site data.</p>
+      </details>
+
+      @if (s().showDiagnostics && diag().controller; as c) {
+        <pre class="ocr-diag">backend={{ diag().backend }} models={{ diag().modelSetId }} paragraphs={{ diag().paragraphs }}
+scans requested={{ c.scansRequested }} submitted={{ c.scansSubmitted }} completed={{ c.scansCompleted }} failed={{ c.scansFailed }} stale={{ c.scansStale }}
+skipped unchanged={{ c.scansSkippedUnchanged }} throttled={{ c.scansSkippedThrottled }} no-motion={{ c.scansSkippedNoMotion }}
+active={{ c.activeInference }} pending={{ c.pendingIntent }} hitTests={{ c.hitTests }} lastScan={{ c.lastScanMs | number:'1.0-0' }}ms lastCapture={{ c.lastCaptureMs | number:'1.0-1' }}ms
+captures={{ diag().frames?.captures }} blank={{ diag().frames?.blankCaptures }} image={{ diag().frames?.lastImageSize }} geometryVersion={{ diag().frames?.geometryVersion }}
+input claims={{ diag().inputClaims.join(',') || 'none' }} fullscreen={{ diag().fullscreen }}
+warnings={{ diag().lastOcrWarnings.join(' | ') || 'none' }}
+lastError={{ diag().lastError || 'none' }}</pre>
+      }
+    </div>
+  }
+</section>

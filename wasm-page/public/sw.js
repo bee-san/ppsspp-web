@@ -6,10 +6,17 @@
  *  - WASM / JS / asset files                     → Cache-first (immutable builds)
  *  - Everything else                              → Network-only (pass-through)
  *
- * The cache is versioned; old caches are pruned on activate.
+ * The cache is versioned; older APPLICATION caches are pruned on activate.
+ * Caches owned by other components (OCR model cache) are never deleted here.
  */
 
-const CACHE_VERSION = "ppsspp-angular-v3";
+// Application caches use a project-specific prefix so activation can prune
+// ONLY older application caches. Caches owned by other components on this
+// origin (e.g. the OCR library's "meikiocr-web-assets-*" model cache) are
+// preserved. The pre-prefix legacy names are listed explicitly for cleanup.
+const APP_CACHE_PREFIX = "ppsspp-web-app-";
+const CACHE_VERSION = APP_CACHE_PREFIX + "v4";
+const LEGACY_APP_CACHES = ["ppsspp-angular-v1", "ppsspp-angular-v2", "ppsspp-angular-v3"];
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [
@@ -20,7 +27,12 @@ const SHELL_FILES = [
 ];
 
 // Extensions considered immutable build artifacts → cache-first
-const IMMUTABLE_EXTS = /\.(wasm|js|data|mem|zim|meta|png|svg|ico|webp|json|txt|css)$/i;
+const IMMUTABLE_EXTS = /\.(wasm|js|mjs|data|mem|zim|meta|png|svg|ico|webp|json|txt|css)$/i;
+
+// OCR model/runtime assets are verified (SHA-256) and cached by the meikiocr-web
+// library in its own Cache Storage namespace. Do not double-cache them here;
+// pass them straight to the network (with isolation headers preserved).
+const OCR_ASSET_PATH = /\/ocr-assets\//;
 
 // ── Install ──────────────────────────────────────────────────────────────────
 self.addEventListener("install", event => {
@@ -37,7 +49,7 @@ self.addEventListener("activate", event => {
     caches.keys().then(keys =>
       Promise.all(
         keys
-          .filter(key => key !== CACHE_VERSION)
+          .filter(key => key !== CACHE_VERSION && (key.startsWith(APP_CACHE_PREFIX) || LEGACY_APP_CACHES.includes(key)))
           .map(key => caches.delete(key))
       )
     ).then(() => self.clients.claim())
@@ -53,6 +65,12 @@ self.addEventListener("fetch", event => {
   if (request.method !== "GET" || url.origin !== self.location.origin) return;
 
   const pathname = url.pathname;
+
+  // OCR assets → network pass-through; the library owns caching + integrity.
+  if (OCR_ASSET_PATH.test(pathname)) {
+    event.respondWith(networkOnly(request));
+    return;
+  }
 
   // App shell → network-first, fallback to cache
   const isShell = pathname.endsWith("/") ||
@@ -75,6 +93,17 @@ self.addEventListener("fetch", event => {
 });
 
 // ── Strategies ───────────────────────────────────────────────────────────────
+
+async function networkOnly(request) {
+  try {
+    return withCrossOriginIsolation(await fetch(request));
+  } catch (err) {
+    return withCrossOriginIsolation(new Response("Network error: " + err.message, {
+      status: 503,
+      headers: { "Content-Type": "text/plain" },
+    }));
+  }
+}
 
 async function networkFirst(request) {
   const cache = await caches.open(CACHE_VERSION);

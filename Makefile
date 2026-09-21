@@ -1,4 +1,4 @@
-.PHONY: help app-install app-build app-build-pages pages wasm-dev wasm-dev-local wasm-release wasm-release-local serve serve-local \
+.PHONY: help app-install app-ocr-assets app-build app-build-pages pages wasm-dev wasm-dev-local wasm-release wasm-release-local serve serve-local \
 	server-docker-up server-docker-up-local server-docker-down server-docker-logs \
 	wasm-status wasm-root-check wasm-submodules wasm-submodule-branch \
 	wasm-submodule-update wasm-submodule-use-local wasm-submodule-use-origin \
@@ -24,7 +24,8 @@ endif
 help:
 	@echo "PPSSPP web targets:"
 	@echo "  make app-install           Install Angular app dependencies"
-	@echo "  make app-build             Build the Angular app"
+	@echo "  make app-ocr-assets        Export pinned OCR models + ONNX Runtime files into wasm-page/public/ocr-assets"
+	@echo "  make app-build             Build the Angular app (exports OCR assets first)"
 	@echo "  make app-build-pages       Build a static Pages app from an existing ppsspp-wasm build"
 	@echo "  make pages                 Build ppsspp-wasm release, then build the static Pages app"
 	@echo "  make wasm-dev              Build the active WASM_ROOT ($(WASM_ROOT)) for dev"
@@ -45,10 +46,13 @@ help:
 app-install:
 	npm --prefix $(APP_DIR) install
 
-app-build:
+app-ocr-assets:
+	npm --prefix $(APP_DIR) run ocr:export-assets
+
+app-build: app-ocr-assets
 	npm --prefix $(APP_DIR) run build
 
-app-build-pages: wasm-root-check
+app-build-pages: wasm-root-check app-ocr-assets
 	@test -f "$(PAGES_WASM_DIR)/PPSSPPSDL.js" || (echo "Missing $(PAGES_WASM_DIR)/PPSSPPSDL.js. Run: make wasm-release" >&2; exit 1)
 	@test -f "$(PAGES_WASM_DIR)/PPSSPPSDL.wasm" || (echo "Missing $(PAGES_WASM_DIR)/PPSSPPSDL.wasm. Run: make wasm-release" >&2; exit 1)
 	@test -f "$(PAGES_WASM_DIR)/PPSSPPSDL.data" || (echo "Missing $(PAGES_WASM_DIR)/PPSSPPSDL.data. Run: make wasm-release" >&2; exit 1)
@@ -65,6 +69,8 @@ app-build-pages: wasm-root-check
 	@test -f "$(APP_DIST)/manifest.webmanifest"
 	@test -f "$(APP_DIST)/sw.js"
 	@test -f "$(APP_DIST)/ppsspp-runtime.js"
+	@test -f "$(APP_DIST)/ocr-assets/manifest.json"
+	@test -f "$(APP_DIST)/ocr-assets/ort-wasm-simd-threaded.wasm"
 	@test -f "$(APP_DIST)/build-wasm/PPSSPPSDL.js"
 	@test -f "$(APP_DIST)/build-wasm/PPSSPPSDL.wasm"
 	@test -f "$(APP_DIST)/build-wasm/PPSSPPSDL.data"

@@ -2,6 +2,9 @@
 
 Web shell and local server for the PPSSPP WebAssembly build.
 
+This fork adds a **local OCR text layer** (MeikiPop-style pointer-following
+text for Yomitan/Hachidori, no bundled dictionary). See [`docs/ocr.md`](docs/ocr.md).
+
 This repository contains:
 
 - `wasm-page/`: Angular app, browser UI, service worker, manifest, and icons.
