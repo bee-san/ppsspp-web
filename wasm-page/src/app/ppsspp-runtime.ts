@@ -60,7 +60,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-09-21-reading-bridge-v2';
+const RUNTIME_ASSET_VERSION = '2026-09-21-open-game-fix';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {

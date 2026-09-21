@@ -101,8 +101,10 @@ const ctxInfo = await page.evaluate(() => {
 console.log("canvas:", JSON.stringify(ctxInfo));
 
 // What does a rAF-synchronised drawImage copy of the WebGL canvas contain?
+// The menu fades in and a single rAF copy can race the present (see ocr-frame-source),
+// so sample up to 8 frames over ~4 s and keep the best one.
 {
-  const cap = await page.evaluate(() => new Promise((resolve) => {
+  const capOnce = () => page.evaluate(() => new Promise((resolve) => {
     requestAnimationFrame(() => {
       const src = document.getElementById("canvas");
       const c = document.createElement("canvas"); c.width = src.width; c.height = src.height;
@@ -114,6 +116,12 @@ console.log("canvas:", JSON.stringify(ctxInfo));
       resolve({ w: c.width, h: c.height, nonzeroPct: (100 * nonzero / (d.length / 4)).toFixed(1), brightPx: bright, png: c.toDataURL("image/png") });
     });
   }));
+  let cap = await capOnce();
+  for (let i = 0; i < 8 && !(Number(cap.nonzeroPct) > 5 && cap.brightPx > 1000); i++) {
+    await page.waitForTimeout(500);
+    const next = await capOnce();
+    if (Number(next.nonzeroPct) >= Number(cap.nonzeroPct)) cap = next;
+  }
   check(Number(cap.nonzeroPct) > 5 && cap.brightPx > 1000, `render-safe capture (preserveDrawingBuffer=false): ${cap.w}x${cap.h}, ${cap.nonzeroPct}% non-black, ${cap.brightPx} bright px`);
   writeFileSync("/tmp/emu-capture.png", Buffer.from(cap.png.split(",")[1], "base64"));
 }
