@@ -257,6 +257,14 @@ async function bootAndEnable(context, viewport) {
   return { page, errors };
 }
 
+/** Hold a key for several emulator frames: PPSSPP samples input once per frame and a slow CI
+ *  runner (SwiftShader, ~5–10 fps) misses Playwright's instantaneous press. */
+async function pressHeld(page, key, ms = 500) {
+  await page.keyboard.down(key);
+  await page.waitForTimeout(ms);
+  await page.keyboard.up(key);
+}
+
 async function measure(page, label, chars = CHARS) {
   await settle(page, 700, chars.length);
   const m = await page.evaluate(`(${MEASURE})(${JSON.stringify(chars)})`);
@@ -333,12 +341,12 @@ async function measure(page, label, chars = CHARS) {
   // must hide (no fragments of dimmed text) and come back by itself when it closes —
   // all without the pointer moving.
   await page.click("#canvas", { position: { x: 20, y: 20 } });
-  await page.keyboard.press("Escape");
+  await pressHeld(page, "Escape");
   const hidden = await page.waitForFunction(() => document.querySelectorAll(".ocr-text-target").length === 0, null, { timeout: 5_000, polling: 100 }).then(() => true, () => false);
   check(hidden, "Escape (PPSSPP pause menu): text layer hidden");
   await page.waitForTimeout(2500);
   check((await page.evaluate(() => document.querySelectorAll(".ocr-text-target").length)) === 0, "no scans while the emulator menu is open");
-  await page.keyboard.press("Escape");
+  await pressHeld(page, "Escape");
   const back = await page.waitForFunction(() => document.querySelectorAll(".ocr-text-target").length >= 40, null, { timeout: 30_000, polling: 250 }).then(() => true, () => false);
   check(back, "closing the menu re-reads the screen without pointer movement (48 glyphs back)");
   await measure(page, "after pause menu closed");
@@ -346,7 +354,7 @@ async function measure(page, label, chars = CHARS) {
   // Scene change: Cross (keyboard Z in PPSSPP's default map) flips the homebrew to page 2.
   // The screen changed on its own → the layer must re-read it with the pointer perfectly still.
   const before = await page.evaluate(() => Array.from(document.querySelectorAll(".ocr-text-target")).map((e) => e.textContent).join(""));
-  await page.keyboard.press("z");
+  await pressHeld(page, "z");
   const auto = await page.waitForFunction(() => /戦闘|スライム/.test(Array.from(document.querySelectorAll(".ocr-text-target")).map((e) => e.textContent).join("")), null, { timeout: 30_000, polling: 250 }).then(() => true, () => false);
   check(auto && /勇者/.test(before), "scene change re-scans automatically without pointer movement (page 2 text appears)");
   await measure(page, "page 2 after scene change", CHARS2);
