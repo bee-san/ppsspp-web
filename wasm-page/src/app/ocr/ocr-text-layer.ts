@@ -160,10 +160,18 @@ export class OcrTextLayer {
     for (const pl of this.placed) {
       const css = imageRectToCss(pl.box, meta, vp.contentRect, vp.sourceWidth, vp.sourceHeight);
       const st = pl.el.style;
-      st.left = `${css.left - this.hostRect.left}px`;
-      st.top = `${css.top - this.hostRect.top}px`;
+      // Placed with transform, NOT position:absolute. Yomitan's DOMTextScanner treats every
+      // absolutely positioned element as a paragraph break (2 newlines), which would split a
+      // word across a visual line wrap and defeat multi-character lookups. Inline-block
+      // siblings inside one paragraph container scan as continuous text (verified against
+      // the pinned scanner in scripts/e2e-emulator.mjs), matching MeikiPop's whole-paragraph
+      // lookup string.
+      st.transform = `translate(${css.left - this.hostRect.left}px, ${css.top - this.hostRect.top}px)`;
       st.width = `${css.width}px`;
       st.height = `${css.height}px`;
+      // Zero flow advance: every sibling lays out at the paragraph origin, so the
+      // transform above is the absolute placement.
+      st.marginRight = `${-css.width}px`;
       const thickness = pl.orientation === 'vertical' ? css.width : css.height;
       st.fontSize = `${Math.max(6, thickness * 0.86 * this.options.fontScale)}px`;
       st.lineHeight = pl.orientation === 'vertical' ? 'normal' : `${css.height}px`;
@@ -179,7 +187,7 @@ export class OcrTextLayer {
         if (n < 2) continue;
         const vertical = pl.orientation === 'vertical';
         const natural = vertical ? pl.el.scrollHeight : pl.el.scrollWidth;
-        const target = vertical ? parseFloat(pl.el.style.height) : parseFloat(pl.el.style.width);
+        const target = vertical ? parseFloat(pl.el.style.height) : parseFloat(pl.el.style.width); // scrollWidth ignores transforms
         if (!natural || !target) continue;
         const fontPx = parseFloat(pl.el.style.fontSize) || 1;
         // letter-spacing applies after every character (incl. the last): total = natural + n*ls

@@ -1505,10 +1505,14 @@ body.drive-connected .drive-sync-btn { display: inline-flex !important; }
   overflow: visible;
 }
 .ocr-text-layer { position: absolute; inset: 0; pointer-events: none; }
-.ocr-text-layer.ocr-hidden .ocr-text-target { pointer-events: none; color: transparent; }
-.ocr-paragraph { position: absolute; inset: 0; pointer-events: none; }
+/* Not activated (hold-key mode, key up): genuinely hidden, so extension scanners skip it too (MeikiPop hides its popup). */
+.ocr-text-layer.ocr-hidden .ocr-text-target { pointer-events: none; visibility: hidden; }
+/* One paragraph container = one scannable text run for extensions (absolute → paragraph break in Yomitan). */
+.ocr-paragraph { position: absolute; left: 0; top: 0; width: 0; height: 0; overflow: visible; white-space: nowrap; pointer-events: none; }
 .ocr-text-target {
-  position: absolute;
+  display: inline-block;
+  vertical-align: top;
+  transform-origin: 0 0;
   pointer-events: auto;
   cursor: text;
   white-space: nowrap;
