@@ -8,7 +8,7 @@ name: Deploy PPSSPP Web + OCR to GitHub Pages
 # Everything runs client-side; Pages serves static files only.
 on:
   push:
-    branches: [ocr-reading-layer]
+    branches: [main]
   workflow_dispatch:
 
 permissions:

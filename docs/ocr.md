@@ -88,7 +88,7 @@ verifies SHA-256 and caches them itself). `.mjs` is treated as immutable.
 ## Deployment
 
 `pages-ocr.yml` publishes https://bee-san.github.io/ppsspp-web/ on every push to
-`ocr-reading-layer`: unit tests → pinned emulator fetch (`emulator.lock.json`,
+`main`: unit tests → pinned emulator fetch (`emulator.lock.json`,
 SHA-256) → OCR asset export → `ng build --base-href ./` → artifact checks →
 the emulator E2E against the exact artifact mounted under `/ppsspp-web/` →
 deploy. GitHub Pages sends no COOP/COEP headers; the shell's service worker

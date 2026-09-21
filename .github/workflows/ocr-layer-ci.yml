@@ -5,7 +5,7 @@ name: OCR layer — tests and build
 # pinned lockfile, and the production Pages-style build.
 on:
   push:
-    branches: [ocr-reading-layer, wasm]
+    branches: [main, ocr-reading-layer, wasm]
   pull_request:
 
 jobs:
