@@ -18,6 +18,28 @@ describe('ocr settings store', () => {
     expect(DEFAULT_OCR_SETTINGS.modelDownloadConsent).toBe(false);
   });
 
+  it('defaults: invisible exact per-character layer (MeikiPop-like)', () => {
+    expect(DEFAULT_OCR_SETTINGS.overlayTextVisible).toBe(false);
+    expect(DEFAULT_OCR_SETTINGS.textLayerStrategy).toBe('glyph-spans');
+    expect(DEFAULT_OCR_SETTINGS.schemaVersion).toBe(2);
+  });
+
+  it('migrates v1: old default line-text → glyph-spans, other choices kept, layer invisible', () => {
+    const st = mem();
+    st.setItem('ppsspp_ocr_settings_v1', JSON.stringify({ schemaVersion: 1, enabled: true, modelDownloadConsent: true, textLayerStrategy: 'line-text', hotkey: 'alt', scanIntervalMs: 800, overlayTextVisible: true }));
+    const s = loadSettings(st);
+    expect(s.schemaVersion).toBe(2);
+    expect(s.textLayerStrategy).toBe('glyph-spans');
+    expect(s.overlayTextVisible).toBe(false);
+    expect(s.enabled).toBe(true);
+    expect(s.modelDownloadConsent).toBe(true);
+    expect(s.hotkey).toBe('alt');
+    expect(s.scanIntervalMs).toBe(800);
+    // an explicit v1 glyph-spans choice is untouched
+    st.setItem('ppsspp_ocr_settings_v1', JSON.stringify({ schemaVersion: 1, textLayerStrategy: 'glyph-spans' }));
+    expect(loadSettings(st).textLayerStrategy).toBe('glyph-spans');
+  });
+
   it('round-trips and ignores unknown schema versions', () => {
     const st = mem();
     saveSettings(st, { ...DEFAULT_OCR_SETTINGS, enabled: true, scanIntervalMs: 700 });

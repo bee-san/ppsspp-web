@@ -17,9 +17,17 @@ export function loadSettings(storage: StorageLike): OcrSettings {
   try {
     const raw = storage.getItem(OCR_SETTINGS_KEY);
     if (!raw) return { ...DEFAULT_OCR_SETTINGS };
-    const parsed = JSON.parse(raw) as Partial<OcrSettings> & { schemaVersion?: number };
-    if (parsed.schemaVersion !== 1) return { ...DEFAULT_OCR_SETTINGS };
-    return sanitize({ ...DEFAULT_OCR_SETTINGS, ...parsed, schemaVersion: 1 });
+    const parsed = JSON.parse(raw) as Omit<Partial<OcrSettings>, 'schemaVersion'> & { schemaVersion?: number };
+    if (parsed.schemaVersion === 1) {
+      // v1 → v2: the exact per-character layer became the default and the layer is invisible
+      // by default. Users who had the v1 default get the new defaults; everything else is kept.
+      const migrated: Omit<Partial<OcrSettings>, 'schemaVersion'> = { ...parsed, schemaVersion: undefined } as Omit<Partial<OcrSettings>, 'schemaVersion'>;
+      if (migrated.textLayerStrategy === 'line-text') migrated.textLayerStrategy = 'glyph-spans';
+      delete migrated.overlayTextVisible;
+      return sanitize({ ...DEFAULT_OCR_SETTINGS, ...migrated, schemaVersion: 2 });
+    }
+    if (parsed.schemaVersion !== 2) return { ...DEFAULT_OCR_SETTINGS };
+    return sanitize({ ...DEFAULT_OCR_SETTINGS, ...parsed, schemaVersion: 2 });
   } catch {
     return { ...DEFAULT_OCR_SETTINGS };
   }
@@ -42,13 +50,14 @@ export function sanitize(s: OcrSettings): OcrSettings {
   out.fontScale = clampNum(out.fontScale, 0.5, 3, 1);
   if (!['source-aligned', 'popup'].includes(out.presentation)) out.presentation = 'source-aligned';
   if (!['remove', 'mark', 'off'].includes(out.stalePolicy)) out.stalePolicy = 'mark';
-  if (!['line-text', 'glyph-spans'].includes(out.textLayerStrategy)) out.textLayerStrategy = 'line-text';
+  if (!['line-text', 'glyph-spans'].includes(out.textLayerStrategy)) out.textLayerStrategy = 'glyph-spans';
   if (!['visual_novel_mode', 'flip_horizontally', 'flip_vertically', 'flip_both'].includes(out.popupPositionMode)) {
     out.popupPositionMode = 'visual_novel_mode';
   }
   if (!['meikipop-v2', 'meikiocr-native'].includes(out.ocrProfile)) out.ocrProfile = 'meikipop-v2';
   if (!['wasm', 'webgpu'].includes(out.ocrBackend)) out.ocrBackend = 'wasm';
   out.hotkey = normalizeHotkey(out.hotkey);
+  out.overlayTextVisible = out.overlayTextVisible === true;
   return out;
 }
 

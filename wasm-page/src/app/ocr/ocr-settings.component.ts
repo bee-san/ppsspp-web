@@ -1,3 +1,4 @@
+import { openPanelTab } from '../panel-tabs';
 import { DecimalPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 
@@ -23,6 +24,10 @@ export class OcrSettingsComponent {
     return p && p.total > 0 ? Math.round((p.loaded / p.total) * 100) : null;
   });
   readonly consentRequired = computed(() => this.diag().phase === 'consent-required');
+
+  openKeys(): void {
+    openPanelTab('keys');
+  }
 
   set<K extends keyof OcrSettings>(key: K, value: OcrSettings[K]): void {
     this.ocr.update({ [key]: value } as Partial<OcrSettings>);

@@ -97,16 +97,49 @@ const toClient = async (sx, sy) => page.evaluate(([sx, sy]) => {
 // ---- Enable OCR
 await page.evaluate(() => { document.body.classList.add("panel-open"); document.querySelector(".tab[data-tab=ocr]").click(); });
 await page.click("#ocrToggleBtn");
-await page.waitForSelector(".ocr-consent", { timeout: 10_000 });
-await page.click(".ocr-consent button.primary");
 await page.waitForFunction(() => /^Ready/.test((document.querySelector(".ocr-status")?.textContent ?? "").trim()), null, { timeout: 180_000 });
 const waitLayout = async (pred, timeout = 20_000) => page.waitForFunction(pred, null, { timeout }).then(() => true, () => false);
-const targetsText = () => page.evaluate(() => [...document.querySelectorAll(".ocr-text-target")].map((e) => e.textContent));
+// Text per source line, whatever the DOM strategy (line spans or per-glyph spans tagged with data-ocr-line).
+const lineTextsFn = `(() => { const m = new Map(); for (const e of document.querySelectorAll(".ocr-text-target")) { const id = e.dataset.ocrLine ?? e.dataset.ocrGlyph; m.set(id, (m.get(id) ?? "") + e.textContent); } return [...m.values()]; })()`;
+const targetsText = () => page.evaluate(lineTextsFn);
+await page.evaluate((src) => Object.defineProperty(window, "LINES", { get: () => eval(src) }), lineTextsFn);
 const diagNum = (key) => page.evaluate((k) => Number(new RegExp(k + "=([\\d,]+)").exec(document.querySelector(".ocr-diag")?.textContent ?? "")?.[1]?.replace(/,/g, "") ?? -1), key);
 await page.evaluate(() => { const cb = [...document.querySelectorAll("#tabOcr input[type=checkbox]")].find((i) => /diagnostics/i.test(i.parentElement?.textContent ?? "")); if (cb && !cb.checked) cb.click(); });
 
 // 1. recognized text == drawn text (initial scan)
 check(await waitLayout(() => document.querySelectorAll(".ocr-text-target").length >= 3), "initial scan produced text targets");
+// Invisible overlay by default (MeikiPop-like): transparent text, still hit-testable; debug toggle paints it.
+{
+  const st = await page.evaluate(() => { const e = document.querySelector(".ocr-text-target"); const c = getComputedStyle(e); return { color: c.color, vis: c.visibility, pe: c.pointerEvents, invisibleClass: e.closest(".ocr-text-layer").classList.contains("ocr-invisible-text") }; });
+  check(st.invisibleClass && st.color === "rgba(0, 0, 0, 0)" && st.vis === "visible" && st.pe === "auto", `overlay text is transparent but hit-testable by default: ${JSON.stringify(st)}`);
+  await page.evaluate(() => { const cb = [...document.querySelectorAll("#tabOcr input[type=checkbox]")].find((i) => /show recognized text/i.test(i.parentElement?.textContent ?? "")); cb.click(); });
+  await page.waitForTimeout(150);
+  const on = await page.evaluate(() => getComputedStyle(document.querySelector(".ocr-text-target")).color);
+  check(on !== "rgba(0, 0, 0, 0)", `debug toggle paints the text (${on})`);
+  await page.evaluate(() => { const cb = [...document.querySelectorAll("#tabOcr input[type=checkbox]")].find((i) => /show recognized text/i.test(i.parentElement?.textContent ?? "")); cb.click(); });
+  await page.waitForTimeout(150);
+  check(await page.evaluate(() => getComputedStyle(document.querySelector(".ocr-text-target")).color === "rgba(0, 0, 0, 0)"), "toggle off → transparent again");
+  // What a dictionary extension does at the pointer (Yomitan: caretRangeFromPoint → text node + offset)
+  // must resolve to the invisible OCR text, at (or next to) the hovered character — for both DOM strategies.
+  const caretCheck = async (label) => {
+    let caretOk = 0, caretTotal = 0; const caretMiss = [];
+    for (const line of truth) for (const g of line.chars) {
+      caretTotal++;
+      const p = await toClient(g.cx, g.cy);
+      const r = await page.evaluate(([x, y]) => { const rg = document.caretRangeFromPoint(x, y); if (!rg) return null; const n = rg.startContainer; const t = n.nodeType === 3 ? n.data : (n.textContent ?? ""); return { text: t, off: rg.startOffset, inLayer: !!(n.parentElement ?? n).closest?.(".ocr-text-layer") }; }, [p.x, p.y]);
+      const near = r && r.inLayer && [r.off - 1, r.off, r.off + 1].some((i) => r.text[i] && r.text[i].normalize("NFKC") === g.ch.normalize("NFKC"));
+      if (near) caretOk++; else caretMiss.push(`${g.ch}→${r ? `${r.text}@${r.off}${r.inLayer ? "" : "/not-layer"}` : "null"}`);
+    }
+    console.log(`  caret ${label}: ${caretOk}/${caretTotal}${caretMiss.length ? " — " + caretMiss.slice(0, 6).join(" ") : ""}`);
+    return caretOk === caretTotal;
+  };
+  const setStrategy = async (v) => { await page.evaluate((v) => { const sel = [...document.querySelectorAll("#tabOcr select")].find((s) => [...s.options].some((o) => o.value === "glyph-spans")); sel.value = v; sel.dispatchEvent(new Event("change", { bubbles: true })); }, v); await page.waitForTimeout(200); };
+  await setStrategy("line-text");
+  const lineTextOk = await caretCheck("line-text (informational; uniform spacing drifts on ink-bounded boxes)");
+  await setStrategy("glyph-spans"); // the default
+  check(await caretCheck("glyph-spans (default)"), "default per-character layer: extension caret hit-test lands on the hovered character for every glyph");
+  console.log(`  caret summary: line-text ${lineTextOk ? "exact" : "drifts"}, glyph-spans exact`);
+}
 let texts = await targetsText();
 const nfkc = (t) => t.normalize("NFKC");
 const want = SCENE1.map((l) => l.text);
@@ -169,7 +202,7 @@ await hoverAll("hover each drawn character");
   const SCENE2 = [{ text: "セーブしますか？", x: 80, y: 200, size: 32 }];
   truth = await page.evaluate((s) => window.__fake.scene(s, "#202020"), SCENE2);
   const p = await toClient(200, 215); await page.mouse.move(p.x + 3, p.y); // movement triggers the scan
-  const replaced = await waitLayout(() => { const t = [...document.querySelectorAll(".ocr-text-target")].map((e) => e.textContent.normalize("NFKC")); return t.length === 1 && t[0] === "セーブしますか？".normalize("NFKC"); });
+  const replaced = await waitLayout(() => { const t = LINES.map((x) => x.normalize("NFKC")); return t.length === 1 && t[0] === "セーブしますか？".normalize("NFKC"); });
   check(replaced, `scene change replaced text: ${JSON.stringify(await targetsText())}`);
   await hoverAll("scene 2 characters");
 }
@@ -182,7 +215,7 @@ await hoverAll("hover each drawn character");
   await page.waitForSelector(".ocr-region-select");
   const a = await toClient(560, 400), b = await toClient(940, 520);
   await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 5 }); await page.mouse.up();
-  const ok = await waitLayout(() => { const t = [...document.querySelectorAll(".ocr-text-target")].map((e) => e.textContent); return t.length === 1 && t[0] === "下の選択肢"; });
+  const ok = await waitLayout(() => { const t = LINES; return t.length === 1 && t[0] === "下の選択肢"; });
   check(ok, `region restricts recognition: ${JSON.stringify(await targetsText())}`);
   truth = truth.filter((l) => l.text === "下の選択肢");
   await hoverAll("region-cropped characters");
@@ -210,7 +243,7 @@ await hoverAll("hover each drawn character");
   const before = await diagNum("submitted");
   const p = await toClient(200, 258); await page.mouse.move(p.x, p.y);
   await page.keyboard.down("Shift");
-  const shown = await waitLayout(() => [...document.querySelectorAll(".ocr-text-target")].some((e) => e.textContent === "手動モードの文") && getComputedStyle(document.querySelector(".ocr-text-target")).visibility !== "hidden");
+  const shown = await waitLayout(() => LINES.some((x) => x === "手動モードの文") && getComputedStyle(document.querySelector(".ocr-text-target")).visibility !== "hidden");
   check(shown, "manual mode: Shift rising edge captured and text is visible while held");
   // key repeat events must not capture again
   for (let i = 0; i < 5; i++) await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", repeat: true, bubbles: true })));

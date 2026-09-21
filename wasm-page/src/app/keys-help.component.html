@@ -1,0 +1,55 @@
+<section class="keys-help">
+  <h3>Header buttons</h3>
+  <table>
+    <tr><td><strong>OCR</strong></td><td>One click turns text reading on/off. First time downloads ~46 MB of models once; then hover game text with your dictionary extension (Yomitan etc.).</td></tr>
+    <tr><td><strong>Mine</strong></td><td>Click: open the clip picker for the last seconds of audio + image. Right-click, long-press or <kbd>Shift</kbd>+click: Mining settings.</td></tr>
+    <tr><td><strong>Panel</strong></td><td>Toggle this side panel. Pick a section with the dropdown (narrow screens) or the tabs.</td></tr>
+  </table>
+
+  <h3>OCR — reading game text</h3>
+  <table>
+    @if (ocrMode().autoScan) {
+      @if (ocrMode().lookupsWithoutHotkey || !ocrKey()) {
+        <tr><td><em>no key</em></td><td>Text under the pointer is scannable as soon as it is recognized ({{ ocrMode().scanOnMouseMove ? 'scans when the pointer moves' : 'scans every ' + ocrMode().scanIntervalMs + ' ms' }}). Hover a word to look it up.</td></tr>
+        @if (ocrKey()) {
+          <tr><td><kbd>{{ ocrKey() }}</kbd></td><td>Not needed in this mode (set “Text follows the pointer without holding a key” off in the OCR tab to require it).</td></tr>
+        }
+      } @else {
+        <tr><td>hold <kbd>{{ ocrKey() }}</kbd></td><td>Text is active (scannable) only while held; released = hidden.</td></tr>
+      }
+    } @else {
+      <tr><td>press <kbd>{{ ocrKey() ?? '—' }}</kbd></td><td>Manual mode: one capture per press; text active while held, hidden on release.</td></tr>
+    }
+    <tr><td><em>drag</em></td><td>“Select text area” in the OCR tab: drag a rectangle over the game to restrict recognition; <kbd>Esc</kbd> cancels; “Full viewport” resets (the default).</td></tr>
+    <tr><td>—</td><td>The recognized text is an invisible layer placed over the game's own glyphs ({{ ocrMode().overlayTextVisible ? 'currently painted for debugging' : 'default' }}); your extension's own keys (e.g. Yomitan's scan key) apply as on any web page.</td></tr>
+  </table>
+  <p class="ocr-muted">Mode: {{ ocr.modeDescription() }}</p>
+
+  <h3>Sentence mining — Anki</h3>
+  <table>
+    <tr><td><kbd>{{ miningKey() }}</kbd></td><td>Open the picker with the last {{ mining.settings().defaultClipSeconds }} s (up to {{ mining.settings().bufferSeconds }} s buffered). Change the key in the Mining tab (“Record” and press a key).</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>Picker: add the clip to your latest Anki note.</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Picker: cancel.</td></tr>
+    <tr><td><kbd>Space</kbd></td><td>Picker: play / pause the selection.</td></tr>
+    <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Picker, animation mode: move the clip end by 250 ms (<kbd>Shift</kbd> = 1 s, <kbd>Alt</kbd> = move the start instead). Screenshot mode: previous / next frame.</td></tr>
+    <tr><td>—</td><td>While the picker is open, keys do not reach the game.</td></tr>
+  </table>
+
+  <h3>Emulator (PPSSPP default keyboard map)</h3>
+  <table>
+    <tr><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd></td><td>D-pad</td></tr>
+    <tr><td><kbd>I</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></td><td>Analog stick</td></tr>
+    <tr><td><kbd>Z</kbd> / <kbd>X</kbd></td><td>Cross / Circle</td></tr>
+    <tr><td><kbd>A</kbd> / <kbd>S</kbd></td><td>Square / Triangle</td></tr>
+    <tr><td><kbd>Q</kbd> / <kbd>W</kbd></td><td>L / R</td></tr>
+    <tr><td><kbd>Space</kbd> / <kbd>V</kbd></td><td>Start / Select</td></tr>
+    <tr><td><kbd>Tab</kbd></td><td>Fast-forward while held</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Pause / emulator menu</td></tr>
+  </table>
+  <p class="ocr-muted">These are PPSSPP's defaults and can be remapped inside the emulator (Settings → Controls → Control mapping). Gamepads are supported too (see the controller badge in the header). Keys held while OCR or Mining have claimed the keyboard (picker open, typing in a settings field) do not reach the game.</p>
+
+  <div class="keys-actions">
+    <button type="button" class="btn" (click)="open('ocr')">OCR settings</button>
+    <button type="button" class="btn" (click)="open('mining')">Mining settings</button>
+  </div>
+</section>

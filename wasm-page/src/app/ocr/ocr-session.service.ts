@@ -65,7 +65,7 @@ export class OcrSessionService {
     this.bridge = bridge;
     this.stage = bridge.getStage() ?? host.parentElement;
     this.frames = new OcrFrameSource(bridge, () => this.settings().maxCapturePixels);
-    this.textLayer = new OcrTextLayer(host, { strategy: this.settings().textLayerStrategy, fontScale: this.settings().fontScale });
+    this.textLayer = new OcrTextLayer(host, { strategy: this.settings().textLayerStrategy, fontScale: this.settings().fontScale, textVisible: this.settings().overlayTextVisible });
     this.popup = new OcrTextPopup(
       host,
       { positionMode: this.settings().popupPositionMode, fontScale: this.settings().fontScale, holdMs: 350 },
@@ -249,7 +249,7 @@ export class OcrSessionService {
   // ─────────────────────────── settings ───────────────────────────
 
   update(patch: Partial<OcrSettings>): void {
-    const next = sanitize({ ...this.settings(), ...patch, schemaVersion: 1 });
+    const next = sanitize({ ...this.settings(), ...patch, schemaVersion: 2 });
     this.settings.set(next);
     saveSettings(localStorage, next);
     this.modeDescription.set(describeMode(next));
@@ -259,7 +259,7 @@ export class OcrSessionService {
   private applySettingsToRuntime(s: OcrSettings): void {
     this.controller?.setSettings(s);
     this.controller?.setEnabled(s.enabled && s.modelDownloadConsent);
-    this.textLayer?.setOptions({ strategy: s.textLayerStrategy, fontScale: s.fontScale });
+    this.textLayer?.setOptions({ strategy: s.textLayerStrategy, fontScale: s.fontScale, textVisible: s.overlayTextVisible });
     this.popup?.setOptions({ positionMode: s.popupPositionMode, fontScale: s.fontScale, holdMs: 350 });
     // One scannable presentation at a time; nothing when OCR is off.
     const enabled = s.enabled && s.modelDownloadConsent;
@@ -279,12 +279,18 @@ export class OcrSessionService {
     }
   }
 
+  /**
+   * One click, no further prompts (MeikiPop-like): enabling OCR is the confirmation for
+   * the one-time ~46 MB model download, which is announced with a toast and the panel's
+   * progress line. Everything runs locally; nothing leaves the page.
+   */
   toggleEnabled(): void {
     const s = this.settings();
     if (!s.enabled) {
-      this.update({ enabled: true });
-      if (!s.modelDownloadConsent) this.patchDiag({ phase: 'consent-required', message: 'OCR runs locally in your browser. Enabling it downloads ~46 MB of model files once and stores them in this site\u2019s cache. No images or text leave the page.' });
-      else void this.ensureModels();
+      const firstTime = !s.modelDownloadConsent;
+      this.update({ enabled: true, modelDownloadConsent: true });
+      if (firstTime && !this.client) this.toast('OCR: downloading ~46 MB of model files once (stored in this site\u2019s cache; runs locally)', 6000);
+      void this.ensureModels();
     } else {
       this.update({ enabled: false });
       this.controller?.setModelsReady(false);
@@ -292,14 +298,20 @@ export class OcrSessionService {
     }
   }
 
+  /** Kept for callers/tests that still confirm explicitly; equivalent to the first enable. */
   grantConsent(): void {
-    this.update({ modelDownloadConsent: true });
+    this.update({ enabled: true, modelDownloadConsent: true });
     void this.ensureModels();
   }
 
   declineConsent(): void {
     this.update({ enabled: false });
     this.patchDiag({ phase: 'off', message: 'OCR text is off' });
+  }
+
+  private toast(msg: string, ms?: number): void {
+    const w = window as unknown as { showToast?: (m: string, ms?: number) => void };
+    if (typeof w.showToast === 'function') w.showToast(msg, ms);
   }
 
   async selectRegion(): Promise<void> {
@@ -365,8 +377,9 @@ export class OcrSessionService {
     const s = this.settings();
     if (!s.enabled) return;
     if (!s.modelDownloadConsent) {
-      this.patchDiag({ phase: 'consent-required', message: 'Model download needs your confirmation.' });
-      return;
+      // Legacy state (older stored settings): enabling is the confirmation.
+      this.update({ modelDownloadConsent: true });
+      return this.ensureModels();
     }
     if (this.client) {
       this.controller?.setModelsReady(true);
@@ -398,6 +411,7 @@ export class OcrSessionService {
         this.controller?.setModelSetId(client.modelSetId);
         this.controller?.setModelsReady(true);
         this.patchDiag({ phase: 'ready', message: `Ready (${client.backend})`, progress: null, backend: client.backend, modelSetId: client.modelSetId });
+        if (this.settings().enabled) this.toast(`OCR ready — hover game text${this.settings().hotkey !== 'none' && !this.settings().lookupsWithoutHotkey ? ` while holding ${this.settings().hotkey}` : ''}`);
       } catch (e) {
         this.patchDiag({ phase: 'error', message: `OCR unavailable: ${(e as Error)?.message ?? e}`, lastError: String((e as Error)?.message ?? e), progress: null });
         this.controller?.setModelsReady(false);

@@ -46,7 +46,7 @@ export type OcrBackendSetting = 'wasm' | 'webgpu';
  * defaults exactly; the rest are player choices (Plan 2 §4).
  */
 export interface OcrSettings {
-  schemaVersion: 1;
+  schemaVersion: 2;
   /** Overall feature toggle; separate from model download consent. */
   enabled: boolean;
   /** User accepted the local model download disclosure. */
@@ -80,10 +80,16 @@ export interface OcrSettings {
   maxCapturePixels: number;
   showDiagnostics: boolean;
   fontScale: number;
+  /**
+   * Paint the recognized text over the game. Off by default (MeikiPop-style): the DOM
+   * text is transparent, so the player sees the game's own glyphs while the dictionary
+   * extension still scans the invisible text underneath. On = debug view.
+   */
+  overlayTextVisible: boolean;
 }
 
 export const DEFAULT_OCR_SETTINGS: Readonly<OcrSettings> = Object.freeze({
-  schemaVersion: 1,
+  schemaVersion: 2,
   enabled: false,
   modelDownloadConsent: false,
   autoScan: true,
@@ -92,7 +98,9 @@ export const DEFAULT_OCR_SETTINGS: Readonly<OcrSettings> = Object.freeze({
   scanIntervalMs: 500,
   hotkey: 'shift',
   presentation: 'source-aligned',
-  textLayerStrategy: 'line-text',
+  // Per-character spans sit exactly on their OCR boxes: caret hit-testing by the extension lands on the
+  // hovered character (21/21 in the fake-frame harness vs 13/21 for uniform line text).
+  textLayerStrategy: 'glyph-spans',
   popupPositionMode: 'visual_novel_mode',
   ocrProfile: 'meikipop-v2',
   ocrBackend: 'wasm',
@@ -104,6 +112,7 @@ export const DEFAULT_OCR_SETTINGS: Readonly<OcrSettings> = Object.freeze({
   maxCapturePixels: 4_000_000,
   showDiagnostics: false,
   fontScale: 1,
+  overlayTextVisible: false,
 });
 
 /** Per-game persisted preferences keyed by a stable game identity. */
