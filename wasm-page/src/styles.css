@@ -617,7 +617,7 @@ body.panel-open aside { display: grid; }
 
   header {
     display: grid;
-    grid-template-columns: 40px minmax(84px, 1fr) 40px 84px;
+    grid-template-columns: 40px minmax(84px, 1fr) 84px 84px; /* 3rd column: fullscreen + OCR */
     gap: 6px;
     padding: 5px max(8px, env(safe-area-inset-right)) 5px max(8px, env(safe-area-inset-left));
     min-height: var(--h);
@@ -679,10 +679,12 @@ body.panel-open aside { display: grid; }
     grid-column: 3;
     justify-self: stretch;
     display: grid;
-    grid-template-columns: 40px;
-    gap: 0;
+    grid-template-columns: 40px 40px;
+    gap: 4px;
     overflow: hidden;
   }
+  button.ocr-btn { width: 40px; padding: 0; justify-content: center; }
+  button.ocr-btn .btn-lbl { display: none; }
   .hbar-end {
     grid-column: 4;
     justify-self: stretch;
@@ -950,7 +952,7 @@ body.panel-open aside { display: grid; }
 @media (pointer: coarse) and (orientation: landscape) and (max-height: 560px) {
   :root { --h: 44px; }
   header {
-    grid-template-columns: 36px minmax(80px, 1fr) 36px 76px;
+    grid-template-columns: 36px minmax(80px, 1fr) 76px 76px;
     height: var(--h);
     min-height: var(--h);
     padding-top: 3px;
@@ -977,8 +979,9 @@ body.panel-open aside { display: grid; }
     gap: 4px;
   }
   #displayGroup {
-    grid-template-columns: 36px;
+    grid-template-columns: 36px 36px;
   }
+  button.ocr-btn { width: 36px; }
   .hbar-end {
     grid-template-columns: 36px 36px;
     gap: 4px;
@@ -1598,4 +1601,18 @@ body.drive-connected .drive-sync-btn { display: inline-flex !important; }
 .ocr-muted { color: var(--muted, #999); margin: 0; }
 .ocr-mode { font-style: italic; }
 .ocr-diag { font-size: 10px; white-space: pre-wrap; background: rgba(0,0,0,.35); padding: 6px; border-radius: 4px; margin: 0; }
-#ocrToggleBtn.active { color: var(--accent, #00d4aa); }
+/* Header OCR toggle: same footprint as the other labelled header buttons; accent when on. */
+button.ocr-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 11px; height: 32px;
+  background: transparent; border-color: var(--border2);
+  color: var(--muted); font-size: 12px; font-weight: 600;
+}
+button.ocr-btn i, button.ocr-btn svg { width: 15px; height: 15px; flex: none; }
+button.ocr-btn:hover { color: var(--text); background: var(--surface2); }
+button.ocr-btn.active {
+  color: var(--accent); border-color: rgba(0,212,170,.45); background: rgba(0,212,170,.09);
+  box-shadow: inset 0 0 0 1px rgba(0,212,170,.15);
+}
+button.ocr-btn.active i, button.ocr-btn.active svg { filter: drop-shadow(0 0 4px rgba(0,212,170,.6)); }
+@media (max-width: 900px) { button.ocr-btn { padding: 0 8px; } }
