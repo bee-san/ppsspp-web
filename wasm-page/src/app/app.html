@@ -27,6 +27,7 @@
     <div class="hbar-group" id="displayGroup">
       <button id="fullscreenBtn" class="icon-btn" title="Fullscreen"><i data-lucide="maximize"></i></button>
       <button id="ocrToggleBtn" type="button" class="ocr-btn" [class.active]="ocr.settings().enabled" [attr.aria-pressed]="ocr.settings().enabled" title="OCR: read game text with your dictionary extension (runs locally)" (click)="ocr.toggleEnabled()"><i data-lucide="eye"></i><span class="btn-lbl"> OCR</span></button>
+      <button id="mineBtn" type="button" class="ocr-btn mine-btn" [class.active]="mining.buffering()" [class.picking]="!!mining.picker()" [disabled]="!mining.settings().enabled" [attr.aria-pressed]="!!mining.picker()" [title]="'Sentence mining: add the last seconds of audio + image to your latest Anki card (hotkey ' + (mining.settings().hotkey.key || mining.settings().hotkey.code) + ')'" (click)="mining.mine()"><i data-lucide="scissors"></i><span class="btn-lbl"> Mine</span></button>
       <select id="gamepadSelect" class="btn" title="Active controller">
         <option value="-1">All controllers</option>
       </select>
@@ -58,6 +59,7 @@
     <section class="stage">
       <canvas id="canvas" width="1280" height="720" tabindex="0"></canvas>
       <div id="ocrOverlay" class="ocr-overlay" aria-live="off"></div>
+      <div id="miningOverlay" class="mining-overlay"><app-mining-picker></app-mining-picker></div>
       <div id="idleOverlay">
         <div class="idle-content">
           <div class="idle-copy">
@@ -183,6 +185,7 @@
           <option value="drive">Google Drive</option>
           <option value="storage">OPFS Storage</option>
           <option value="ocr">OCR</option>
+          <option value="mining">Mining</option>
           <option value="info">System</option>
           <option value="log">Console</option>
           <option value="about">About</option>
@@ -196,6 +199,7 @@
         <div class="tab"        data-tab="drive"><i data-lucide="cloud"></i> Drive</div>
         <div class="tab"        data-tab="storage"><i data-lucide="hard-drive"></i> OPFS</div>
         <div class="tab"        data-tab="ocr"><i data-lucide="eye"></i> OCR</div>
+        <div class="tab"        data-tab="mining"><i data-lucide="scissors"></i> Mining</div>
         <div class="tab"        data-tab="info"><i data-lucide="settings"></i> System</div>
         <div class="tab"        data-tab="log"><i data-lucide="terminal"></i> Console</div>
         <div class="tab"        data-tab="about"><i data-lucide="info"></i> About</div>
@@ -203,6 +207,10 @@
 
       <div class="tab-panel" id="tabOcr">
         <app-ocr-settings></app-ocr-settings>
+      </div>
+
+      <div class="tab-panel" id="tabMining">
+        <app-mining-settings></app-mining-settings>
       </div>
 
       <div class="tab-panel active" id="tabLibrary">
@@ -386,6 +394,10 @@
               Made by <a href="https://github.com/bee-san" target="_blank" rel="noopener">bee-san</a>: a browser PSP emulator with a local OCR text layer
               (<a href="https://github.com/bee-san/meikiocr-web" target="_blank" rel="noopener">meikiocr-web</a>) so game text can be read with a dictionary extension such as
               <a href="https://github.com/bee-san/hachidori" target="_blank" rel="noopener">Hachidori</a>. Emulator core: PPSSPP's WebAssembly port (upstream ppsspp-wasm).
+            </div>
+            <div class="about-text">
+              <strong>Sentence mining:</strong> the game is buffered continuously; press the <kbd>§</kbd> hotkey or the <strong>Mine</strong> button to trim the last
+              seconds of audio and an animated image, then send them to the newest card in Anki via AnkiConnect. See the Mining tab for setup.
             </div>
             <div class="about-links">
               <a href="https://bee-san.github.io/ppsspp-web/" target="_blank" rel="noopener">Live web build</a>

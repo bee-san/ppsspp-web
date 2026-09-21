@@ -7,7 +7,7 @@ bundled dictionary, deconjugation, translation or Anki code.
 
 - OCR engine + layout/hit-testing: [`meikiocr-web`](https://github.com/bee-san/meikiocr-web) (pinned by commit in `wasm-page/package.json`).
 - Behaviour specification: MeikiPop `ed1b70c40f38a6bd397e277ed4106c26d34dab97`.
-- Emulator: unchanged. A narrow, versioned `window.PpssppReadingBridge` (v1) in
+- Emulator: unchanged. A narrow, versioned `window.PpssppReadingBridge` (v1; v2 adds the audio tap used by [sentence mining](mining.md)) in
   `wasm-page/public/ppsspp-runtime.js` exposes lifecycle state, the canvas/stage
   elements, and a balanced input claim.
 

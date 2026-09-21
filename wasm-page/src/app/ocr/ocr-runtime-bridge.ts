@@ -8,6 +8,7 @@ import type { BridgeState, LifecycleEvent } from './ocr-types';
 export const READING_BRIDGE_VERSION = 1;
 
 export interface RawReadingBridge {
+  /** Bridge API version; additive bumps (v2 = audio tap) keep the v1 surface intact. */
   version: number;
   getState(): BridgeState;
   getCanvas(): HTMLCanvasElement | null;
@@ -26,7 +27,7 @@ export class OcrRuntimeBridge {
 
   static connect(win: Window & { PpssppReadingBridge?: unknown } = window): OcrRuntimeBridge | null {
     const raw = win.PpssppReadingBridge as RawReadingBridge | undefined;
-    if (!raw || typeof raw !== 'object' || raw.version !== READING_BRIDGE_VERSION) return null;
+    if (!raw || typeof raw !== 'object' || typeof raw.version !== 'number' || raw.version < READING_BRIDGE_VERSION) return null;
     return new OcrRuntimeBridge(raw);
   }
 

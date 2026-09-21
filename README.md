@@ -5,6 +5,12 @@ Web shell and local server for the PPSSPP WebAssembly build.
 This fork adds a **local OCR text layer** (MeikiPop-style pointer-following
 text for Yomitan/Hachidori, no bundled dictionary). See [`docs/ocr.md`](docs/ocr.md).
 
+It also adds **sentence mining** (asbplayer/mpvacious-style): the game is
+buffered continuously; press `§` or the **Mine** button, trim the last seconds of
+audio in the picker, and the MP3 plus an animated WebP (or a screenshot) are
+written into your most recently added Anki card via AnkiConnect. See
+[`docs/mining.md`](docs/mining.md) and the section below.
+
 **Live:** https://bee-san.github.io/ppsspp-web/ — deployed by
 `.github/workflows/pages-ocr.yml` from the `main` branch. The
 emulator binaries are the upstream-published PPSSPP WASM build pinned by
@@ -21,6 +27,24 @@ The emulator source and WebAssembly build outputs live in `deps/ppsspp-wasm`,
 the pinned Git submodule used for reproducible checkouts and local development.
 If you temporarily want to use a separate checkout, override
 `WASM_ROOT=/path/to/ppsspp-wasm`.
+
+## Sentence mining (Anki)
+
+1. Install the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on
+   (code `2055492159`) and keep Anki open. On Android use
+   [AnkiConnect Android](https://github.com/KamWithK/AnkiconnectAndroid) with AnkiDroid.
+2. Open the side panel → **Mining** tab → **Test connection**. Anki asks whether
+   this site may use AnkiConnect — click **Yes** (the origin is allowlisted once).
+3. Set the audio / picture field names to match your note type (defaults
+   `SentenceAudio` / `Picture`) and an optional tag (`ppsspp-web`).
+4. Create the card (e.g. with Yomitan from the OCR text layer), then press `§`
+   (rebindable) or **Mine**. Trim the clip in the picker (Space = preview),
+   press **Enter**. The last 8 s of the 20 s buffer are proposed; image mode is
+   animated WebP (follows the audio range) or a single screenshot with a frame
+   slider. If Anki is unreachable the picker offers **Download instead**.
+
+Everything stays in memory in the browser; the only network request is to the
+AnkiConnect URL you configure (default `http://127.0.0.1:8765`).
 
 ## Checkout
 

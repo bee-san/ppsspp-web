@@ -1,0 +1,72 @@
+@if (state(); as st) {
+  <div class="mining-picker-backdrop" (click)="onBackdrop($event)">
+    <div class="mining-picker" role="dialog" aria-modal="true" aria-labelledby="miningPickerTitle" tabindex="-1">
+      <div class="mining-picker-head">
+        <strong id="miningPickerTitle">Add to Anki</strong>
+        <span class="mining-muted">{{ imageMode() === 'animated' ? 'Animated image follows the audio range' : 'Screenshot: pick a frame' }}</span>
+        <button type="button" class="btn mining-close" title="Cancel (Esc)" aria-label="Cancel" (click)="cancel()" [disabled]="busy()">✕</button>
+      </div>
+
+      <div class="mining-preview">
+        @if (previewUrl(); as url) {
+          <img [src]="url" alt="Game frame preview" draggable="false" />
+        } @else {
+          <div class="mining-preview-empty">No frame captured in this range</div>
+        }
+        @if (imageMode() === 'screenshot' && framesInRange().length > 1) {
+          <div class="mining-frame-nav">
+            <button type="button" class="btn" aria-label="Previous frame" title="Previous frame (←)" (click)="stepFrame(-1)" [disabled]="busy()">‹</button>
+            <input type="range" min="0" [max]="framesInRange().length - 1" step="1" [value]="frameIndex()" (input)="onFrameSlider($event)" aria-label="Frame" [disabled]="busy()" />
+            <button type="button" class="btn" aria-label="Next frame" title="Next frame (→)" (click)="stepFrame(1)" [disabled]="busy()">›</button>
+            <span class="mining-muted mining-frame-count">{{ frameIndex() + 1 }} / {{ framesInRange().length }}</span>
+          </div>
+        }
+      </div>
+
+      <div class="mining-wave-wrap" #waveWrap
+           (pointerdown)="onWavePointerDown($event)"
+           (pointermove)="onWavePointerMove($event)"
+           (pointerup)="onWavePointerUp($event)"
+           (pointercancel)="onWavePointerUp($event)">
+        <canvas #wave class="mining-wave" aria-hidden="true"></canvas>
+        <div class="mining-shade mining-shade-l" [style.width.%]="inLeftPct()"></div>
+        <div class="mining-shade mining-shade-r" [style.width.%]="inRightPct()"></div>
+        <div class="mining-handle mining-handle-in" [style.left.%]="inLeftPct()" role="slider" aria-label="Clip start" aria-valuetext="{{ fromLabel() }}"><span></span></div>
+        <div class="mining-handle mining-handle-out" [style.left.%]="100 - inRightPct()" role="slider" aria-label="Clip end" aria-valuetext="{{ toLabel() }}"><span></span></div>
+        @if (playheadPct() !== null) {
+          <div class="mining-playhead" [style.left.%]="playheadPct()"></div>
+        }
+      </div>
+
+      <div class="mining-times">
+        <span>{{ fromLabel() }}</span>
+        <strong>{{ durationLabel() }}</strong>
+        <span>{{ toLabel() }}</span>
+      </div>
+
+      @if (st.phase === 'select') {
+        <p class="mining-hint mining-muted">Drag the handles to trim. Space = preview, Enter = add, Esc = cancel.</p>
+      } @else if (st.phase === 'encoding' || st.phase === 'sending') {
+        <p class="mining-hint" role="status">
+          {{ st.message }}
+          <span class="mining-progress"><span class="mining-progress-bar" [style.width.%]="st.progress"></span></span>
+        </p>
+      } @else if (st.phase === 'error') {
+        <p class="mining-hint mining-error" role="alert">{{ st.message }}</p>
+      }
+
+      <div class="mining-actions">
+        <button type="button" class="btn" (click)="togglePlay()" [disabled]="busy()" [attr.aria-pressed]="playing()">{{ playing() ? '■ Stop' : '▶ Play' }}</button>
+        <span class="mining-actions-spacer"></span>
+        @if (st.phase === 'error') {
+          <button type="button" class="btn" (click)="downloadInstead()">Download instead</button>
+          <button type="button" class="btn" (click)="cancel()">Close</button>
+          <button type="button" class="primary" (click)="retry()">Retry</button>
+        } @else {
+          <button type="button" class="btn" (click)="cancel()" [disabled]="busy()">Cancel</button>
+          <button type="button" class="primary" (click)="add()" [disabled]="busy()">Add to last card</button>
+        }
+      </div>
+    </div>
+  </div>
+}
