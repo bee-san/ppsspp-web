@@ -56,7 +56,7 @@ Opening the tab (no game needed):
 | Default clip length | 8 s | 1 s – buffer |
 | Image | animated WebP | animated / screenshot |
 | Frames / s, max width, quality | 8, 480 px, 0.8 | 4–15, 240–960, 0.5–0.95 |
-| MP3 bitrate | 96 kbps | 64 / 96 / 128 |
+| MP3 bitrate | 128 kbps | 128 / 160 / 192 — the bundled lamejs build produces ~0.1 s of audio then silence for stereo below 128 kbps at 44.1/48 kHz (found by the real-game E2E, 2026-09-21); stored 64/96 values fall back to 128 |
 | AnkiConnect URL | `http://127.0.0.1:8765` | http(s) |
 | Audio / picture field, tag | `SentenceAudio` / `Picture` / `ppsspp-web` | |
 | Show picker | on | off = add the default clip immediately |
@@ -118,6 +118,8 @@ wasm-page/src/app/mining/
 ```
 
 ## Tests
+
+- Real game (`scripts/e2e-mining-game.mjs`, in both CI workflows): boots `test-game/EBOOT.PBP` (Japanese text pages + a 440/660 Hz tone alternating every 500 ms), mines after flipping to page 2 and verifies the *content* of what reaches AnkiConnect: the MP3 decoded by the browser is not silence (RMS 0.17) and its Goertzel spectrum peaks at 440 and 660 Hz (> 500× any other probed frequency); the animated WebP's first frame is page 1 (blue) and its last frame page 2 (red) — frames are the game's, ordered, ending at "now"; request sequence and fields as in the menu E2E; input claim released. This test is what exposed the silent-MP3 bitrate bug the menu-only E2E could not see (the menu is silent).
 
 - `npm test` — unit specs for every pure module (settings, ring buffers, WebP
   parser/muxer, MP3 helpers with a real lamejs encode, AnkiConnect with mocked

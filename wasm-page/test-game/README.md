@@ -11,7 +11,9 @@ Droid Sans Japanese (Apache 2.0).
   pixels themselves. White 6×6 squares in the four corners let a test find the PSP
   frame inside the emulator canvas from pixels alone.
 * `main.c` copies the current page into VRAM every vblank; **Cross** (keyboard `Z`
-  in PPSSPP's default map) flips to the next page.
+  in PPSSPP's default map) flips to the next page. An audio thread plays a stereo test
+  tone (440 Hz / 660 Hz alternating every 500 ms, 44.1 kHz) so audio capture can be
+  verified by frequency analysis.
 * `build.sh` regenerates the scene and builds `EBOOT.PBP` with the pspdev toolchain
   in Docker (`pspdev/pspdev:latest`). The built `EBOOT.PBP` is committed so CI does
   not need Docker.

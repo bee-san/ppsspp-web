@@ -229,8 +229,8 @@ check(dbg && Math.abs(dbg.audio.endMs - dbg.lastFrame) < 400 && dbg.framesUsed >
 console.log("lifecycle timeline:", JSON.stringify(await page.evaluate(() => window.__events)));
 check(productionRatio > 0.3, `audio production ratio ${productionRatio.toFixed(2)} (≈1 on real hardware; lower under SwiftShader)`);
 check(media.sync && media.decoded && !media.decoded.error && Math.abs(media.decoded.duration - sliceSeconds) < 0.15 && media.decoded.channels === 2, `MP3 decodes in-browser: ${media.decoded?.duration?.toFixed(2)} s (selected audio ${sliceSeconds.toFixed(2)} s), ${media.decoded?.channels} ch, ${media.mp3Bytes} B`);
-const expectedBytes = sliceSeconds * 96_000 / 8;
-check(media.mp3Bytes > expectedBytes * 0.7 && media.mp3Bytes < expectedBytes * 1.5, `MP3 size consistent with 96 kbps (${media.mp3Bytes} B vs ~${Math.round(expectedBytes)} B)`);
+const expectedBytes = sliceSeconds * 128_000 / 8;
+check(media.mp3Bytes > expectedBytes * 0.7 && media.mp3Bytes < expectedBytes * 1.5, `MP3 size consistent with 128 kbps (${media.mp3Bytes} B vs ~${Math.round(expectedBytes)} B)`);
 check(media.riff && media.vp8x && media.anmf >= 3 && media.imgOk && media.imgW <= 480 && media.imgW > 0, `animated WebP decodes in-browser: ${media.anmf} frames, ${media.imgW}x${media.imgH}, ${media.webpBytes} B`);
 writeFileSync("/tmp/mining-emu-clip.webp", Buffer.from(note.picture[0].data, "base64"));
 writeFileSync("/tmp/mining-emu-clip.mp3", Buffer.from(note.audio[0].data, "base64"));

@@ -50,6 +50,10 @@ jobs:
         run: |
           cd wasm-page
           node scripts/e2e-mining.mjs
+      - name: Sentence-mining E2E with a real game (test-game tone → MP3 spectrum at 440/660 Hz; WebP frames show the game pages in order)
+        run: |
+          cd wasm-page
+          node scripts/e2e-mining-game.mjs
       - name: Overlay alignment E2E (real emulator + Japanese-text homebrew, DOM glyphs vs known ink boxes across resize/fullscreen/DPR/scroll/scene change)
         run: |
           cd wasm-page
