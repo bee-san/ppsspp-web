@@ -25,7 +25,7 @@ export class MiningSettingsComponent {
   readonly bufferedLabel = computed(() => {
     const d = this.diag();
     if (!d.sampleRate) return 'Buffered: —';
-    return `Buffered: ${(d.bufferedAudioMs / 1000).toFixed(1)} s @ ${d.sampleRate} Hz × ${d.channelCount}ch · ${d.frameCount} frames (${this.fmtBytes(d.frameBytes)})`;
+    return `Buffered: ${(d.bufferedAudioMs / 1000).toFixed(1)} s @ ${d.sampleRate} Hz × ${d.channelCount}ch · ${d.frameCount} frames / ${(d.frameSpanMs / 1000).toFixed(1)} s (${this.fmtBytes(d.frameBytes)})`;
   });
 
   constructor() {

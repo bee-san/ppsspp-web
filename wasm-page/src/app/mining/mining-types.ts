@@ -134,6 +134,8 @@ export interface MiningDiagnostics {
   channelCount: number;
   frameCount: number;
   frameBytes: number;
+  /** Wall-clock span covered by the buffered frames (ms). */
+  frameSpanMs: number;
   /** Capture loop counters (see MiningFrameCapture.diag). */
   capture: { captures: number; blankRetries: number; blank: number; encodeFailures: number; lastEncodeMs: number; lastSize: string } | null;
   lastError: string | null;
@@ -150,6 +152,7 @@ export function emptyMiningDiagnostics(): MiningDiagnostics {
     channelCount: 0,
     frameCount: 0,
     frameBytes: 0,
+    frameSpanMs: 0,
     capture: null,
     lastError: null,
     anki: null,

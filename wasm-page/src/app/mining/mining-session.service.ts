@@ -146,6 +146,7 @@ export class MiningSessionService {
       channelCount: a?.channelsCount ?? 0,
       frameCount: f?.length ?? 0,
       frameBytes: f?.byteLength ?? 0,
+      frameSpanMs: f && f.length > 1 ? f.latest()!.wallTimeMs - f.startMs()! : 0,
       capture: this.capture ? { ...this.capture.diag } : null,
     }));
   }

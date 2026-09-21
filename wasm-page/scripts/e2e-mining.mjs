@@ -126,8 +126,8 @@ try {
 // Let audio + frames accumulate; measure the buffer growth rate against wall-clock.
 const readBuffered = async () => {
   const txt = await page.locator(".mining-buffered").innerText();
-  const m = /Buffered: ([\d.]+) s @ (\d+) Hz × (\d)ch · (\d+) frames \(([^)]+)\)/.exec(txt);
-  return m ? { s: Number(m[1]), sr: Number(m[2]), ch: Number(m[3]), frames: Number(m[4]), mem: m[5], txt } : { txt };
+  const m = /Buffered: ([\d.]+) s @ (\d+) Hz × (\d)ch · (\d+) frames \/ ([\d.]+) s \(([^)]+)\)/.exec(txt);
+  return m ? { s: Number(m[1]), sr: Number(m[2]), ch: Number(m[3]), frames: Number(m[4]), span: Number(m[5]), mem: m[6], txt } : { txt };
 };
 await page.waitForFunction(() => /Buffered: [1-9]/.test(document.querySelector(".mining-buffered")?.textContent ?? ""), null, { timeout: 90_000, ...POLL }).catch(async (e) => dumpState("no audio buffered: " + e.message.split("\n")[0]));
 const b1 = await readBuffered();
@@ -135,6 +135,13 @@ const w1 = Date.now();
 await page.waitForTimeout(4000);
 // Frames depend on rAF cadence, which is slow under SwiftShader on small runners: give them time.
 await page.waitForFunction(() => Number(/· (\d+) frames/.exec(document.querySelector(".mining-buffered")?.textContent ?? "")?.[1] ?? 0) >= 8, null, { timeout: 90_000, ...POLL }).catch(async (e) => dumpState("few frames: " + e.message.split("\n")[0]));
+// Short trace of the rings over time (page clock), useful when a slow runner behaves differently.
+for (let i = 0; i < 6; i++) {
+  await page.waitForTimeout(2000);
+  const b = await readBuffered();
+  const t = await page.evaluate(() => Math.round(performance.now()));
+  console.log(`trace t=${t}ms: ${b.txt}`);
+}
 const b2 = await readBuffered();
 const elapsed = (Date.now() - w1) / 1000;
 // Show the diagnostics block (capture-loop counters) for the log.
@@ -153,6 +160,7 @@ check(growth > elapsed * 0.4 && growth < elapsed * 1.4, `buffer grows with wall-
 check(b2.frames >= 8, `continuous WebGL capture stored ${b2.frames} non-blank WebP frames (${b2.mem})`);
 
 // Hotkey → picker. Dispatch on window like a real key reaching the capture-phase gate.
+console.log(`hotkey at page t=${await page.evaluate(() => Math.round(performance.now()))}ms`);
 await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "§", code: "Backquote", bubbles: true, cancelable: true })));
 await page.waitForSelector(".mining-picker", { timeout: 30_000 });
 check(await page.evaluate(() => window.PpssppReadingBridge.hasInputClaim()), "picker open: emulator keyboard input claimed");
