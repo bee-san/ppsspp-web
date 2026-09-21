@@ -46,7 +46,7 @@ export type OcrBackendSetting = 'wasm' | 'webgpu';
  * defaults exactly; the rest are player choices (Plan 2 §4).
  */
 export interface OcrSettings {
-  schemaVersion: 2;
+  schemaVersion: 3;
   /** Overall feature toggle; separate from model download consent. */
   enabled: boolean;
   /** User accepted the local model download disclosure. */
@@ -75,7 +75,8 @@ export interface OcrSettings {
    *            the next pointer movement re-scans as usual)
    *  - off:    no freshness check
    */
-  stalePolicy: 'remove' | 'mark' | 'off';
+  /** What to do when the frame changes under visible text: re-infer automatically (default; needs no pointer movement), keep+mark, remove, or ignore. */
+  stalePolicy: 'rescan' | 'remove' | 'mark' | 'off';
   /** Cap on capture pixels; larger crops are downsampled with the transform retained. */
   maxCapturePixels: number;
   showDiagnostics: boolean;
@@ -89,7 +90,7 @@ export interface OcrSettings {
 }
 
 export const DEFAULT_OCR_SETTINGS: Readonly<OcrSettings> = Object.freeze({
-  schemaVersion: 2,
+  schemaVersion: 3,
   enabled: false,
   modelDownloadConsent: false,
   autoScan: true,
@@ -106,7 +107,7 @@ export const DEFAULT_OCR_SETTINGS: Readonly<OcrSettings> = Object.freeze({
   ocrBackend: 'wasm',
   wasmThreads: 1,
   pauseGameDuringLookup: false,
-  stalePolicy: 'mark',
+  stalePolicy: 'rescan',
   // MeikiPop OCRs the raw screen pixels; do not downsample unless the render target exceeds the
   // library's 4 MP input guard (e.g. 4K). Downsampling changed recognitions in testing.
   maxCapturePixels: 4_000_000,

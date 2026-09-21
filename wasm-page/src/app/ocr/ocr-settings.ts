@@ -24,10 +24,17 @@ export function loadSettings(storage: StorageLike): OcrSettings {
       const migrated: Omit<Partial<OcrSettings>, 'schemaVersion'> = { ...parsed, schemaVersion: undefined } as Omit<Partial<OcrSettings>, 'schemaVersion'>;
       if (migrated.textLayerStrategy === 'line-text') migrated.textLayerStrategy = 'glyph-spans';
       delete migrated.overlayTextVisible;
-      return sanitize({ ...DEFAULT_OCR_SETTINGS, ...migrated, schemaVersion: 2 });
+      return sanitize({ ...DEFAULT_OCR_SETTINGS, ...migrated, schemaVersion: 3 });
     }
-    if (parsed.schemaVersion !== 2) return { ...DEFAULT_OCR_SETTINGS };
-    return sanitize({ ...DEFAULT_OCR_SETTINGS, ...parsed, schemaVersion: 2 });
+    if (parsed.schemaVersion === 2) {
+      // v2 → v3: the frame-change policy gained 'rescan' (re-infer without pointer movement)
+      // and it became the default; users still on the old default 'mark' move with it.
+      const migrated = { ...parsed } as Omit<Partial<OcrSettings>, 'schemaVersion'>;
+      if (migrated.stalePolicy === 'mark' || migrated.stalePolicy === undefined) migrated.stalePolicy = 'rescan';
+      return sanitize({ ...DEFAULT_OCR_SETTINGS, ...migrated, schemaVersion: 3 });
+    }
+    if (parsed.schemaVersion !== 3) return { ...DEFAULT_OCR_SETTINGS };
+    return sanitize({ ...DEFAULT_OCR_SETTINGS, ...parsed, schemaVersion: 3 });
   } catch {
     return { ...DEFAULT_OCR_SETTINGS };
   }
@@ -49,7 +56,7 @@ export function sanitize(s: OcrSettings): OcrSettings {
   out.maxCapturePixels = clampNum(out.maxCapturePixels, 65_536, 4_000_000, DEFAULT_OCR_SETTINGS.maxCapturePixels);
   out.fontScale = clampNum(out.fontScale, 0.5, 3, 1);
   if (!['source-aligned', 'popup'].includes(out.presentation)) out.presentation = 'source-aligned';
-  if (!['remove', 'mark', 'off'].includes(out.stalePolicy)) out.stalePolicy = 'mark';
+  if (!['rescan', 'remove', 'mark', 'off'].includes(out.stalePolicy)) out.stalePolicy = 'rescan';
   if (!['line-text', 'glyph-spans'].includes(out.textLayerStrategy)) out.textLayerStrategy = 'glyph-spans';
   if (!['visual_novel_mode', 'flip_horizontally', 'flip_vertically', 'flip_both'].includes(out.popupPositionMode)) {
     out.popupPositionMode = 'visual_novel_mode';

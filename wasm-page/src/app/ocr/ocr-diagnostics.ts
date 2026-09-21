@@ -27,6 +27,8 @@ export interface OcrDiagnosticsSnapshot {
   lastError: string | null;
   inputClaims: readonly string[];
   fullscreen: boolean;
+  /** PPSSPP's pause menu is open (Escape): text hidden, no scans. */
+  emulatorMenu: boolean;
   paragraphs: number;
 }
 
@@ -43,6 +45,7 @@ export function emptyDiagnostics(): OcrDiagnosticsSnapshot {
     lastError: null,
     inputClaims: [],
     fullscreen: false,
+    emulatorMenu: false,
     paragraphs: 0,
   };
 }

@@ -44,7 +44,7 @@ export const realScheduler: Scheduler = {
   clearTimeout: (id) => window.clearTimeout(id),
 };
 
-export type ScanKind = 'initial' | 'movement' | 'periodic' | 'manual' | 'refresh' | 'invalidate';
+export type ScanKind = 'initial' | 'movement' | 'periodic' | 'manual' | 'refresh' | 'invalidate' | 'stale';
 
 export interface ControllerPorts {
   capture(region: NormRegion): Promise<CapturedGameFrame | null>;
@@ -70,6 +70,7 @@ export interface ControllerDiagnostics {
   scansStale: number;
   /** Stale checks that found changed pixels under visible text. */
   staleDetected: number;
+  staleRescans: number;
   scansFailed: number;
   hitTests: number;
   captureFailures: number;
@@ -96,6 +97,8 @@ export interface ControllerInputs {
   gameReady: boolean;
   documentVisible: boolean;
   pointerInside: boolean;
+  /** PPSSPP's own pause menu is open (Escape); see setEmulatorUiOpen. */
+  emulatorUiOpen: boolean;
 }
 
 /** Minimum delay between movement-triggered captures after an unchanged image (MeikiPop: 0.1 s). */
@@ -114,6 +117,7 @@ export class OcrScanController {
     gameReady: false,
     documentVisible: true,
     pointerInside: false,
+    emulatorUiOpen: false,
   };
 
   /** Bumped on game/scene/region/profile/model changes; stale completions are dropped. */
@@ -147,6 +151,7 @@ export class OcrScanController {
     scansCompleted: 0,
     scansStale: 0,
     staleDetected: 0,
+    staleRescans: 0,
     scansFailed: 0,
     hitTests: 0,
     captureFailures: 0,
@@ -224,6 +229,22 @@ export class OcrScanController {
   setDocumentVisible(v: boolean): void {
     this.setInput('documentVisible', v);
   }
+  /**
+   * The emulator's own UI (PPSSPP pause menu, opened with Escape) is drawn over a dimmed
+   * game: recognizing it yields fragments of the dimmed game text mixed with menu labels.
+   * While it is open the layer is hidden and no scans run; closing it re-infers.
+   */
+  setEmulatorUiOpen(v: boolean): void {
+    if (this.inputs.emulatorUiOpen === v) return;
+    this.inputs.emulatorUiOpen = v;
+    if (v) {
+      this.suspend();
+      this.clearPublished();
+    } else {
+      this.invalidate('emulator-ui-closed');
+    }
+    this.emitDiag();
+  }
 
   private setInput<K extends keyof ControllerInputs>(k: K, v: ControllerInputs[K]): void {
     if (this.inputs[k] === v) return;
@@ -242,7 +263,7 @@ export class OcrScanController {
   }
 
   private eligible(): boolean {
-    return !this.stopped && this.inputs.enabled && this.inputs.modelsReady && this.inputs.gameReady && this.inputs.documentVisible;
+    return !this.stopped && this.inputs.enabled && this.inputs.modelsReady && this.inputs.gameReady && this.inputs.documentVisible && !this.inputs.emulatorUiOpen;
   }
 
   /** Hidden tab / disabled / game stopped: cancel pending work, clear held state, hide UI. */
@@ -603,6 +624,19 @@ export class OcrScanController {
         this.pointerMovedSinceLastScan = true; // the next movement scan re-infers
         this.lastCompared = null; // and must not be skipped as "unchanged"
         this.diag.staleDetected++;
+        if (this.settings.stalePolicy === 'rescan') {
+          // Keep the old text readable but flagged, and re-infer as soon as the throttle
+          // allows — the screen changed on its own (dialogue advanced, menu opened), which
+          // in an emulator happens without any pointer movement.
+          if (!this.published.stale) {
+            this.published = { ...this.published, stale: true };
+            this.ports.onLayout(this.published);
+          }
+          this.diag.staleRescans++;
+          this.requestScan('stale');
+          this.emitDiag();
+          return;
+        }
         if (this.settings.stalePolicy === 'remove') {
           // Retire spatial targets; next movement/hotkey may re-infer.
           this.published = null;

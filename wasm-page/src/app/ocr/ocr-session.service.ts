@@ -48,6 +48,7 @@ export class OcrSessionService {
   private mutationObserver: MutationObserver | null = null;
   private geometryTimer: number | null = null;
   private lastGeometrySig = '';
+  private emulatorMenuOpen = false;
   private listeners: Array<() => void> = [];
   private lastPointer: { clientX: number; clientY: number } | null = null;
   private lastWarnings: readonly string[] = [];
@@ -132,6 +133,12 @@ export class OcrSessionService {
       this.listeners.push(() => el.removeEventListener(type as string, fn as EventListener, opts));
     };
     on(stage, 'pointermove', (e: PointerEvent) => this.onPointerMove(e), { passive: true });
+    on(stage, 'pointerdown', () => {
+      if (!this.emulatorMenuOpen) return;
+      // Any click inside PPSSPP's pause menu leaves the pause screen (Continue, Settings,
+      // Exit to menu…); give the emulator a moment to redraw, then resume recognition.
+      window.setTimeout(() => this.setEmulatorMenu(false), 700);
+    }, { passive: true });
     on(stage, 'pointerleave', () => {
       this.lastPointer = null;
       this.controller?.pointerLeave();
@@ -211,7 +218,14 @@ export class OcrSessionService {
 
   private onKey(e: KeyboardEvent, down: boolean): void {
     const s = this.settings();
-    if (!s.enabled || s.hotkey === 'none') return;
+    if (!s.enabled) return;
+    // Escape toggles PPSSPP's pause menu (drawn over a dimmed game). Track it so the
+    // layer hides instead of showing fragments of the dimmed text under the menu.
+    if (e.key === 'Escape' && down && !e.repeat && this.bridge?.getState().phase === 'running') {
+      this.setEmulatorMenu(!this.emulatorMenuOpen);
+      return;
+    }
+    if (s.hotkey === 'none') return;
     if (e.key !== HOTKEY_EVENT_KEYS[s.hotkey]) return;
     if (down) {
       if (e.repeat) return; // rising edge only
@@ -219,6 +233,14 @@ export class OcrSessionService {
     } else {
       this.controller?.hotkeyUp();
     }
+  }
+
+  /** PPSSPP pause menu open/closed (best effort: Escape toggles it; a click inside it — Continue, Exit… — changes the screen and leaves it). */
+  private setEmulatorMenu(open: boolean): void {
+    if (this.emulatorMenuOpen === open) return;
+    this.emulatorMenuOpen = open;
+    this.controller?.setEmulatorUiOpen(open);
+    this.patchDiag({ emulatorMenu: open, message: open ? 'Emulator menu open — text hidden' : this.diagnostics().message });
   }
 
   private onLayout(p: PublishedLayout | null): void {
@@ -276,7 +298,7 @@ export class OcrSessionService {
   // ─────────────────────────── settings ───────────────────────────
 
   update(patch: Partial<OcrSettings>): void {
-    const next = sanitize({ ...this.settings(), ...patch, schemaVersion: 2 });
+    const next = sanitize({ ...this.settings(), ...patch, schemaVersion: 3 });
     this.settings.set(next);
     saveSettings(localStorage, next);
     this.modeDescription.set(describeMode(next));

@@ -329,9 +329,26 @@ async function measure(page, label, chars = CHARS) {
 
   // Scene change: Cross (keyboard Z in PPSSPP's default map) flips the homebrew to page 2;
   // OCR must re-scan and the new text must be aligned just the same.
+  // First: the emulator's own pause menu. Escape opens it over a dimmed game; the layer
+  // must hide (no fragments of dimmed text) and come back by itself when it closes —
+  // all without the pointer moving.
   await page.click("#canvas", { position: { x: 20, y: 20 } });
+  await page.keyboard.press("Escape");
+  const hidden = await page.waitForFunction(() => document.querySelectorAll(".ocr-text-target").length === 0, null, { timeout: 5_000, polling: 100 }).then(() => true, () => false);
+  check(hidden, "Escape (PPSSPP pause menu): text layer hidden");
+  await page.waitForTimeout(2500);
+  check((await page.evaluate(() => document.querySelectorAll(".ocr-text-target").length)) === 0, "no scans while the emulator menu is open");
+  await page.keyboard.press("Escape");
+  const back = await page.waitForFunction(() => document.querySelectorAll(".ocr-text-target").length >= 40, null, { timeout: 30_000, polling: 250 }).then(() => true, () => false);
+  check(back, "closing the menu re-reads the screen without pointer movement (48 glyphs back)");
+  await measure(page, "after pause menu closed");
+
+  // Scene change: Cross (keyboard Z in PPSSPP's default map) flips the homebrew to page 2.
+  // The screen changed on its own → the layer must re-read it with the pointer perfectly still.
+  const before = await page.evaluate(() => Array.from(document.querySelectorAll(".ocr-text-target")).map((e) => e.textContent).join(""));
   await page.keyboard.press("z");
-  await page.waitForFunction(() => /戦闘|スライム/.test(Array.from(document.querySelectorAll(".ocr-text-target")).map((e) => e.textContent).join("")), null, { timeout: 60_000, polling: 500 }).catch(() => {});
+  const auto = await page.waitForFunction(() => /戦闘|スライム/.test(Array.from(document.querySelectorAll(".ocr-text-target")).map((e) => e.textContent).join("")), null, { timeout: 30_000, polling: 250 }).then(() => true, () => false);
+  check(auto && /勇者/.test(before), "scene change re-scans automatically without pointer movement (page 2 text appears)");
   await measure(page, "page 2 after scene change", CHARS2);
 
   check(errors.length === 0, `no page errors (${errors.slice(0, 3).join(" | ")})`);
