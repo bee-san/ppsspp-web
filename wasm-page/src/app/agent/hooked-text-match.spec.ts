@@ -34,6 +34,9 @@ describe('hooked text matching', () => {
     expect(m!.score).toBeGreaterThan(0.85);
     // unrelated text: no match
     expect(bestSubstring('アイテム', hooked, 0.5)).toBeNull();
+    // short lines are held to ≥ 0.75 even at threshold 0.5: 「アイテム」 must not become 「ライム」
+    expect(bestSubstring('アイテム', 'スライムが現れた。どうする？', 0.5)).toBeNull();
+    expect(bestSubstring('スライム', 'スライムが現れた。', 0.5)?.text).toBe('スライム');
   });
 
   it('replace mode swaps misread lines for the hooked text and keeps boxes; unmatched lines untouched', () => {

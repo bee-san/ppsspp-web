@@ -75,6 +75,9 @@ export function bestSubstring(needle: string, hay: string, threshold: number): S
   const map: number[] = [];
   Hn.forEach((c, i) => { for (const ch of Array.from(c)) { flat.push(ch); map.push(i); } });
   const n = N.length;
+  // Short lines need a stricter bar: at 0.5, 「アイテム」 would accept 「ライム」 (2 edits in 4).
+  // Allow at most max(1, n/4) edits, i.e. ≥ 0.75 for short strings, whatever the user threshold.
+  threshold = Math.max(threshold, 1 - Math.max(1, Math.floor(n / 4)) / n);
   const minLen = Math.max(1, Math.floor(n * 0.75)), maxLen = Math.min(flat.length, Math.ceil(n * 1.25));
   const needleStr = N.join('');
   let best: SubstringMatch | null = null;

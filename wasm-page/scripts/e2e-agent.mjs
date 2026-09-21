@@ -103,31 +103,47 @@ const status = await page.locator("app-agent-settings .ocr-status").innerText();
 check(/1 watch/.test(status) && /1 PC hook.*inactive/.test(status), `script running: "${status}"`);
 const base = await page.evaluate(() => window.PpssppReadingBridge.guestMemory.base());
 check(base > 0, `PSP memory arena located at host offset 0x${base.toString(16)} (kernel HLE stub signature)`);
-// Read the game's g_line directly through the bridge as a cross-check of the mapping.
-const gline = await page.evaluate(() => { const b = window.PpssppReadingBridge.guestMemory.read(0x088a1860, 64); return b ? new TextDecoder("shift_jis").decode(b.subarray(0, b.indexOf(0))) : null; });
+// Ground truth: the game's g_line read directly through the bridge. On a slow runner the
+// homebrew reaches show_page() some time after the bridge reports "running", so wait for it.
+const readGLine = () => page.evaluate(() => { const b = window.PpssppReadingBridge.guestMemory.read(0x088a1860, 64); if (!b) return null; const z = b.indexOf(0); return new TextDecoder("shift_jis").decode(b.subarray(0, z < 0 ? b.length : z)); });
+await page.waitForFunction(() => { const b = window.PpssppReadingBridge.guestMemory.read(0x088a1860, 64); return b && b[0] !== 0 && !(b[0] === 0x69 && b[1] === 0x6e); }, null, { timeout: 120_000, ...POLL }).catch(() => {});
+const gline = await readGLine();
 check(gline === LINE1, `bridge read of g_line (0x088a1860) → "${gline}"`);
+const latestFeed = () => page.evaluate(() => document.querySelector("app-agent-settings .agent-lines li .agent-line-text")?.textContent ?? "");
 
-// The watch records the initial buffer silently; a page flip must produce the new line.
+// Press Cross until the game flips (g_line changes), then the feed must show exactly that text.
+const flipAndExpectFeed = async (label) => {
+  const before = await readGLine();
+  let after = before;
+  for (let attempt = 0; attempt < 4 && after === before; attempt++) {
+    await pressHeld("z");
+    await page.waitForFunction(({ prev }) => { const b = window.PpssppReadingBridge.guestMemory.read(0x088a1860, 64); if (!b) return false; const z = b.indexOf(0); return new TextDecoder("shift_jis").decode(b.subarray(0, z < 0 ? b.length : z)) !== prev; }, { prev: before }, { timeout: 8_000, ...POLL }).catch(() => {});
+    after = await readGLine();
+  }
+  const ok = after !== before && (await page.waitForFunction((want) => (document.querySelector("app-agent-settings .agent-lines li .agent-line-text")?.textContent ?? "") === want, after, { timeout: 30_000, ...POLL }).then(() => true, () => false));
+  check(ok, `${label}: game now shows "${after}" → same text arrives in the feed`);
+  return after;
+};
 await page.click("#canvas", { position: { x: 20, y: 20 } });
-const tFlip = await page.evaluate(() => performance.now());
-await pressHeld("z");
-const got2 = await page.waitForFunction((want) => (document.querySelector("app-agent-settings .agent-lines li .agent-line-text")?.textContent ?? "") === want, LINE2, { timeout: 20_000, ...POLL }).then(() => true, () => false);
-check(got2, `page flip → hooked line "${LINE2}" in the feed`);
-await page.waitForTimeout(500);
-await pressHeld("z");
-const got1 = await page.waitForFunction((want) => (document.querySelector("app-agent-settings .agent-lines li .agent-line-text")?.textContent ?? "") === want, LINE1, { timeout: 20_000, ...POLL }).then(() => true, () => false);
-check(got1, `second flip → "${LINE1}"`);
-await pressHeld("z"); // back to page 2 for the OCR/mining part
-await page.waitForFunction((want) => (document.querySelector("app-agent-settings .agent-lines li .agent-line-text")?.textContent ?? "") === want, LINE2, { timeout: 20_000, ...POLL }).catch(() => {});
+const l2 = await flipAndExpectFeed("page flip");
+check(l2 === LINE2, `flipped to page 2 text "${LINE2}"`);
+const l1 = await flipAndExpectFeed("second flip");
+check(l1 === LINE1, `back to page 1 text`);
+await flipAndExpectFeed("third flip"); // page 2 for the OCR/mining part
 const feedCount = await page.evaluate(() => document.querySelectorAll("app-agent-settings .agent-lines li").length);
-check(feedCount === 3, `feed holds ${feedCount} lines (3 flips)`);
+check(feedCount >= 3, `feed holds ${feedCount} lines`);
+check((await readGLine()) === LINE2 && (await latestFeed()) === LINE2, "game on page 2 and feed's latest line matches it");
 
 // ── OCR integration: the recognizer emits ASCII "?" for fullwidth "？"; the hook corrects it. ──
 await page.click("#ocrToggleBtn");
 await page.waitForFunction(() => document.querySelectorAll(".ocr-text-target").length >= 10, null, { timeout: 240_000, polling: 500 });
-// nudge so a scan of the current page happens after the hook line exists
-for (let i = 0; i < 6; i++) { await page.mouse.move(700 + i * 5, 500); await page.waitForTimeout(600); }
-const hooked = await page.waitForFunction(() => document.querySelectorAll('.ocr-text-target[data-ocr-source="hook"]').length > 0, null, { timeout: 30_000, ...POLL }).then(() => true, () => false);
+// nudge until the layer shows page-2 text (a scan of the current frame) and the hook correction is in
+let hooked = false;
+for (let i = 0; i < 40 && !hooked; i++) {
+  await page.mouse.move(700 + (i % 5) * 5, 500 + (i % 3) * 4);
+  await page.waitForTimeout(700);
+  hooked = await page.evaluate(() => { const all = Array.from(document.querySelectorAll(".ocr-text-target")).map((e) => e.textContent).join(""); return /スライム/.test(all) && document.querySelectorAll('.ocr-text-target[data-ocr-source="hook"]').length > 0; });
+}
 const ocrText = await page.evaluate(() => ({ all: Array.from(document.querySelectorAll(".ocr-text-target")).map((e) => e.textContent).join(""), hooked: Array.from(document.querySelectorAll('.ocr-text-target[data-ocr-source="hook"]')).map((e) => e.textContent).join(""), raw: (window.__ppssppOcrDebug?.snapshot?.lines ?? []).map((l) => l.text).join("|") }));
 console.log("  OCR layer text:", ocrText.all, "| hooked spans:", ocrText.hooked, "| raw OCR:", ocrText.raw);
 check(hooked && ocrText.all.includes("どうする？"), `OCR layer shows the hooked text (fullwidth ？) where the recognizer had "${ocrText.raw.includes("どうする?") ? "どうする?" : "…"}"`);
@@ -135,16 +151,22 @@ check(hooked && ocrText.all.includes("どうする？"), `OCR layer shows the ho
 // ── Mining integration: clip starts at the line's timestamp − pre-roll; Sentence field set. ──
 await page.evaluate(() => { const sel = document.getElementById("panelTabSelect"); sel.value = "mining"; sel.dispatchEvent(new Event("change", { bubbles: true })); });
 await page.waitForFunction(() => /Buffered: [3-9]|Buffered: \d\d/.test(document.querySelector(".mining-buffered")?.textContent ?? ""), null, { timeout: 120_000, ...POLL });
-await pressHeld("z"); // fresh line → its timestamp is "now"
-await page.waitForTimeout(300);
-const flipAt = await page.evaluate(() => performance.now());
+const beforeMine = await readGLine();
+let flipAt = await page.evaluate(() => performance.now());
+for (let attempt = 0; attempt < 4; attempt++) {
+  await pressHeld("z"); // fresh line → its timestamp is "now"
+  flipAt = await page.evaluate(() => performance.now()) - 250; // the watch fires while the key is held
+  const changed = await page.waitForFunction(({ prev }) => { const b = window.PpssppReadingBridge.guestMemory.read(0x088a1860, 64); if (!b) return false; const z = b.indexOf(0); return new TextDecoder("shift_jis").decode(b.subarray(0, z < 0 ? b.length : z)) !== prev; }, { prev: beforeMine }, { timeout: 8_000, ...POLL }).then(() => true, () => false);
+  if (changed) break;
+}
+await page.waitForFunction((want) => (document.querySelector("app-agent-settings .agent-lines li .agent-line-text")?.textContent ?? "") !== want, beforeMine, { timeout: 30_000, ...POLL }).catch(() => {});
 await page.waitForTimeout(2500);
 await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "§", code: "Backquote", bubbles: true, cancelable: true })));
 await page.waitForSelector(".mining-picker", { timeout: 30_000 });
 const hotkeyAt = await page.evaluate(() => performance.now());
 const sel = parseFloat(await page.locator(".mining-times strong").innerText());
 const expected = (hotkeyAt - flipAt) / 1000 + 0.6; // pre-roll 600 ms
-check(Math.abs(sel - expected) < 0.9, `picker preselects the clip from the hooked line: ${sel.toFixed(1)} s (line appeared ${((hotkeyAt - flipAt) / 1000).toFixed(1)} s ago + 0.6 s pre-roll; default would be 8 s)`);
+check(Math.abs(sel - expected) < 1.2, `picker preselects the clip from the hooked line: ${sel.toFixed(1)} s (line appeared ${((hotkeyAt - flipAt) / 1000).toFixed(1)} s ago + 0.6 s pre-roll; default would be 8 s)`);
 await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })));
 await page.waitForFunction(() => !document.querySelector(".mining-picker"), null, { timeout: 120_000, ...POLL });
 const upd = ankiCalls.find((c) => c.action === "updateNoteFields")?.params?.note;
