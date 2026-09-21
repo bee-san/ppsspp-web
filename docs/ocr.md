@@ -65,6 +65,14 @@ canvas is pixel-complete with `preserveDrawingBuffer:false` (21 % non-black,
 ~12 k bright pixels on the menu screen). Windowed mode only; fullscreen and
 paused-game captures are still untested.
 
+Observed on a slow CI runner (GitHub Actions + SwiftShader): 2 of 4 rAF copies
+were entirely black while the scene was not, i.e. the copy landed between the
+buffer being cleared and the next emulator draw. The frame source therefore
+retries a blank capture once on the following frame when the previous capture
+had content (`blankRetries` in diagnostics); a frame that is blank twice is
+accepted as legitimately black. The opt-in `preserveDrawingBuffer` fallback
+remains for hosts where that still yields blanks.
+
 Why `stalePolicy` defaults to `mark`: PPSSPP's own menu (and many VN scenes)
 has an animated background, so a strict "pixels changed → remove text" policy
 erased every result 500 ms after it appeared while the pointer was still. The

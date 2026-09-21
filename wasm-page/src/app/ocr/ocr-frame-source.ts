@@ -20,6 +20,8 @@ import type { OcrRuntimeBridge } from './ocr-runtime-bridge';
 export interface FrameSourceDiagnostics {
   captures: number;
   blankCaptures: number;
+  /** Blank frames that were retried one frame later because the previous capture had content. */
+  blankRetries: number;
   lastCaptureMs: number;
   lastImageSize: string;
   geometryVersion: number;
@@ -31,7 +33,7 @@ export class OcrFrameSource {
   private lastGeom: { w: number; h: number; rect: string } | null = null;
   private geometryVersion = 0;
   private frameCounter = 0;
-  readonly diag: FrameSourceDiagnostics = { captures: 0, blankCaptures: 0, lastCaptureMs: 0, lastImageSize: '', geometryVersion: 0 };
+  readonly diag: FrameSourceDiagnostics = { captures: 0, blankCaptures: 0, blankRetries: 0, lastCaptureMs: 0, lastImageSize: '', geometryVersion: 0 };
 
   constructor(
     private readonly bridge: OcrRuntimeBridge,
@@ -68,16 +70,33 @@ export class OcrFrameSource {
     const canvas = this.bridge.getCanvas();
     if (!canvas || canvas.width === 0 || canvas.height === 0) return Promise.resolve(null);
     return new Promise((resolve) => {
-      requestAnimationFrame(() => {
-        try {
-          resolve(this.copyNow(canvas, region));
-        } catch (e) {
-          console.warn('[ocr] capture failed', e);
-          resolve(null);
-        }
-      });
+      const attempt = (retriesLeft: number) => {
+        requestAnimationFrame(() => {
+          try {
+            const got = this.copyNow(canvas, region);
+            // Render-boundary race (observed on slow hosts): a rAF copy can land after the
+            // presented buffer was cleared and before the emulator drew again, yielding an
+            // all-black frame although the scene is not black. If the previous capture had
+            // content, retry once on the next frame. A repeatedly black frame is accepted as
+            // legitimately black (plan §6).
+            if (got && got.blank && this.lastHadContent && retriesLeft > 0) {
+              this.diag.blankRetries++;
+              attempt(retriesLeft - 1);
+              return;
+            }
+            if (got) this.lastHadContent = !got.blank;
+            resolve(got ? got.frame : null);
+          } catch (e) {
+            console.warn('[ocr] capture failed', e);
+            resolve(null);
+          }
+        });
+      };
+      attempt(1);
     });
   }
+
+  private lastHadContent = true;
 
   private ensureScratch(w: number, h: number): CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D {
     if (!this.scratch) {
@@ -92,7 +111,7 @@ export class OcrFrameSource {
     return this.ctx!;
   }
 
-  private copyNow(canvas: HTMLCanvasElement, region: NormRegion): CapturedGameFrame | null {
+  private copyNow(canvas: HTMLCanvasElement, region: NormRegion): { frame: CapturedGameFrame; blank: boolean } | null {
     const t0 = performance.now();
     const state = this.bridge.getState();
     const vp = this.getViewport();
@@ -112,9 +131,10 @@ export class OcrFrameSource {
     this.diag.captures++;
     this.diag.lastCaptureMs = performance.now() - t0;
     this.diag.lastImageSize = `${width}x${height}`;
-    if (isBlank(img.data)) this.diag.blankCaptures++;
+    const blank = isBlank(img.data);
+    if (blank) this.diag.blankCaptures++;
 
-    return {
+    const frame: CapturedGameFrame = {
       frame: { frameId: `g${state.gameSessionId}s${state.sceneEpoch}f${++this.frameCounter}`, width, height, capturedAtMs: t0, rgba },
       meta: {
         gameSessionId: state.gameSessionId,
@@ -129,6 +149,7 @@ export class OcrFrameSource {
         sourceHeight: vp.sourceHeight,
       },
     };
+    return { frame, blank };
   }
 
   dispose(): void {
