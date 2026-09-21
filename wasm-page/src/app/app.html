@@ -26,7 +26,7 @@
 
     <div class="hbar-group" id="displayGroup">
       <button id="fullscreenBtn" class="icon-btn" title="Fullscreen"><i data-lucide="maximize"></i></button>
-      <button id="ocrToggleBtn" type="button" class="icon-btn" [class.active]="ocr.settings().enabled" [attr.aria-pressed]="ocr.settings().enabled" title="OCR text (local, for dictionary extensions)" (click)="ocr.toggleEnabled()"><i data-lucide="eye"></i><span class="btn-lbl"> OCR</span></button>
+      <button id="ocrToggleBtn" type="button" class="ocr-btn" [class.active]="ocr.settings().enabled" [attr.aria-pressed]="ocr.settings().enabled" title="OCR text: read game text with your dictionary extension (runs locally)" (click)="ocr.toggleEnabled()"><i data-lucide="eye"></i><span class="btn-lbl"> OCR text</span></button>
       <select id="gamepadSelect" class="btn" title="Active controller">
         <option value="-1">All controllers</option>
       </select>
@@ -79,10 +79,10 @@
             <div class="idle-psp-stick"></div>
           </div>
         </div>
-        <a class="idle-powered" href="https://github.com/root-hunter" target="_blank" rel="noopener" title="Powered by root-hunter">
+        <a class="idle-powered" href="https://github.com/bee-san" target="_blank" rel="noopener" title="Made by bee-san">
           <span class="idle-powered-dot"></span>
-          <span>Powered by</span>
-          <strong>root-hunter</strong>
+          <span>Made by</span>
+          <strong>bee-san</strong>
         </a>
       </div>
       <div id="loadOverlay">
