@@ -357,6 +357,15 @@ async function measure(page, label, chars = CHARS) {
   const fs = await page.evaluate(() => ({ el: document.fullscreenElement?.className ?? null, w: innerWidth, h: innerHeight, cls: document.body.className }));
   if (fs.el) {
     await measure(page, `fullscreen (${fs.el.split(" ")[0]} ${fs.w}x${fs.h})`);
+    // Panel open while fullscreen (floating toolbar): the stage is narrower than 16:9, so the
+    // canvas is letterboxed by object-fit inside its CSS box — mapping must use the content rect.
+    await page.click("#fsPanelBtn");
+    await page.waitForTimeout(900);
+    const fsPanel = await page.evaluate(() => ({ aside: document.querySelector("aside").getBoundingClientRect().width, fit: getComputedStyle(document.getElementById("canvas")).objectFit }));
+    check(fsPanel.aside > 200 && fsPanel.fit === "contain", `panel usable in fullscreen (aside ${fsPanel.aside}px wide, canvas object-fit ${fsPanel.fit})`);
+    await measure(page, "fullscreen with the panel open (letterboxed canvas)");
+    await page.click("#fsPanelBtn");
+    await page.waitForTimeout(600);
     // (not via Escape: PPSSPP maps it to its pause menu)
     await page.evaluate(() => document.exitFullscreen?.().catch(() => {}));
     await page.waitForTimeout(1200);

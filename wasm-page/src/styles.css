@@ -219,10 +219,12 @@ body.browser-fullscreen #stageMini {
 body.browser-fullscreen canvas,
 canvas:fullscreen,
 canvas:-webkit-full-screen {
-  width: min(var(--viewport-w), calc(var(--app-h) * 16 / 9)) !important;
-  height: min(var(--app-h), calc(var(--viewport-w) * 9 / 16)) !important;
-  max-width: var(--viewport-w) !important;
-  max-height: var(--app-h) !important;
+  /* fill the stage (which may share the screen with the side panel) keeping 16:9 */
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  aspect-ratio: auto !important;
   border: 0 !important;
   border-radius: 0 !important;
   box-shadow: none !important;
@@ -1836,3 +1838,17 @@ input.mining-text { text-align: left; justify-content: flex-start; padding: 0 8p
 .agent-import .agent-feed-head .btn { margin-left: auto; }
 .agent-details summary { cursor: pointer; font-weight: 600; }
 .agent-details > label { margin-top: 6px; }
+
+/* ── Floating toolbar while the stage is fullscreen ─────────────── */
+#fsToolbar { display: none; position: absolute; top: 8px; right: 8px; z-index: 40; gap: 6px; padding: 4px; border-radius: 10px; background: rgba(8, 10, 14, .72); border: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(6px); opacity: .55; transition: opacity .2s; }
+#fsToolbar:hover, #fsToolbar:focus-within, body.fs-toolbar-visible #fsToolbar { opacity: 1; }
+#fsToolbar .btn { height: 34px; min-width: 34px; width: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+body.browser-fullscreen #fsToolbar { display: flex; }
+body.browser-fullscreen.fs-cursor-hidden #fsToolbar { opacity: 0; pointer-events: none; }
+body.browser-fullscreen.fs-cursor-hidden #fsToolbar:hover { opacity: 1; pointer-events: auto; }
+/* .body-main is the fullscreen element (stage + aside): size it to the screen */
+.body-main:fullscreen, .body-main:-webkit-full-screen { width: 100vw !important; height: 100vh !important; background: #000; }
+.body-main:fullscreen .stage, .body-main:-webkit-full-screen .stage { padding: 0 !important; background: #000 !important; display: flex !important; align-items: center !important; justify-content: center !important; min-height: 0; }
+body.browser-fullscreen.panel-open .body-main { grid-template-columns: minmax(0, 1fr) var(--panel-w); }
+body.browser-fullscreen.panel-open aside { top: 0 !important; height: 100% !important; max-height: 100% !important; }
+body.browser-fullscreen aside { border-top: none; }

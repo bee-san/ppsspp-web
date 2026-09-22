@@ -5027,7 +5027,23 @@ function isFullscreenActive() {
 }
 
 function fullscreenTarget() {
-  return stageEl || canvas || document.documentElement;
+  // The stage's parent holds the stage AND the side panel: fullscreening it keeps the panel
+  // (OCR / Mining / Text hook / Keys) reachable while playing fullscreen.
+  return document.querySelector(".body-main") || stageEl || canvas || document.documentElement;
+}
+
+// The emulator (SDL/Emscripten) fullscreens the bare <canvas> on its own — on touch devices in
+// landscape it does so right after boot. A fullscreen canvas hides everything the shell layers
+// over it (OCR text, mining picker, toasts, the header). Redirect such requests to the stage
+// container: the canvas still fills the screen (object-fit: contain rules) and the overlays
+// keep working; the floating fullscreen toolbar gives access to Panel / OCR / Mine / exit.
+if (canvas && stageEl && typeof canvas.requestFullscreen === "function") {
+  const nativeRequest = canvas.requestFullscreen.bind(canvas);
+  canvas.requestFullscreen = (opts) => {
+    log("Emulator requested canvas fullscreen → using the stage instead (keeps overlays usable)", "info");
+    const target = fullscreenTarget();
+    return (target !== canvas && target.requestFullscreen ? target.requestFullscreen(opts) : nativeRequest(opts));
+  };
 }
 
 async function requestBrowserFullscreen() {
@@ -5105,6 +5121,11 @@ async function togglePPSSPPFullscreen() {
   scheduleRuntimeResize(true);
 }
 
+// Floating toolbar shown while the stage is fullscreen (header is not visible then).
+for (const [id, target] of [["fsPanelBtn", "panelToggleBtn"], ["fsOcrBtn", "ocrToggleBtn"], ["fsMineBtn", "mineBtn"]]) {
+  on(byId(id), "click", (e) => { e.stopPropagation(); byId(target)?.click(); });
+}
+on(byId("fsExitBtn"), "click", async (e) => { e.stopPropagation(); await exitBrowserFullscreen(); scheduleRuntimeResize(true); });
 on(fullscreenBtn, "click", async () => {
   await togglePPSSPPFullscreen();
   canvas?.focus();
