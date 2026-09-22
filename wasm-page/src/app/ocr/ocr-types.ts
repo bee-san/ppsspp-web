@@ -177,6 +177,15 @@ export interface CaptureMeta {
 export interface CapturedGameFrame {
   frame: RgbaFrame;
   meta: CaptureMeta;
+  /** Small thumbnail of the same crop (≤ 160 px wide) for cheap change detection. */
+  probe?: FrameProbe;
+}
+
+/** Downsampled RGBA thumbnail of a capture region: cheap to take and compare. */
+export interface FrameProbe {
+  width: number;
+  height: number;
+  rgba: Uint8Array;
 }
 
 /** Pointer sample in the game viewport's normalized coordinates, or null when outside. */

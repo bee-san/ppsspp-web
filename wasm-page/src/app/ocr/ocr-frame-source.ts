@@ -13,12 +13,14 @@
  * `localStorage.ppsspp_ocr_preserve_drawing_buffer = "1"` (applied at the next
  * emulator start) makes the buffer readable outside the render callback.
  */
-import type { BridgeViewport, CapturedGameFrame, CssRect, NormRegion } from './ocr-types';
+import type { FrameProbe, BridgeViewport, CapturedGameFrame, CssRect, NormRegion } from './ocr-types';
 import { captureScale, contentRectFor, regionToSourceRect, scaledSize } from './ocr-coordinate-map';
 import type { OcrRuntimeBridge } from './ocr-runtime-bridge';
 
 export interface FrameSourceDiagnostics {
   captures: number;
+  /** Cheap thumbnail probes taken for change detection. */
+  probes: number;
   blankCaptures: number;
   /** Blank frames that were retried one frame later because the previous capture had content. */
   blankRetries: number;
@@ -33,7 +35,7 @@ export class OcrFrameSource {
   private lastGeom: { w: number; h: number; rect: string } | null = null;
   private geometryVersion = 0;
   private frameCounter = 0;
-  readonly diag: FrameSourceDiagnostics = { captures: 0, blankCaptures: 0, blankRetries: 0, lastCaptureMs: 0, lastImageSize: '', geometryVersion: 0 };
+  readonly diag: FrameSourceDiagnostics = { captures: 0, probes: 0, blankCaptures: 0, blankRetries: 0, lastCaptureMs: 0, lastImageSize: '', geometryVersion: 0 };
 
   constructor(
     private readonly bridge: OcrRuntimeBridge,
@@ -112,6 +114,54 @@ export class OcrFrameSource {
     return this.ctx!;
   }
 
+  /**
+   * Cheap change detection: a ≤ 160 px thumbnail of the region at the next render boundary
+   * (one small drawImage + getImageData instead of the full-resolution copy the OCR capture
+   * needs). Used by the controller's stale check so idle polling costs next to nothing.
+   */
+  probe(region: NormRegion): Promise<FrameProbe | null> {
+    const canvas = this.bridge.getCanvas();
+    if (!canvas || canvas.width === 0 || canvas.height === 0) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        try {
+          const crop = regionToSourceRect(region, canvas.width, canvas.height);
+          if (crop.w <= 0 || crop.h <= 0) return resolve(null);
+          const { width, height } = probeSize(crop.w, crop.h);
+          const ctx = this.ensureProbeScratch(width, height);
+          ctx.imageSmoothingEnabled = true;
+          ctx.drawImage(canvas, crop.x, crop.y, crop.w, crop.h, 0, 0, width, height);
+          const img = ctx.getImageData(0, 0, width, height);
+          this.diag.probes++;
+          resolve({ width, height, rgba: new Uint8Array(img.data.buffer) });
+        } catch (e) {
+          resolve(null);
+          void e;
+        }
+      });
+    });
+  }
+
+  private probeScratch: HTMLCanvasElement | OffscreenCanvas | null = null;
+  private probeCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
+  private ensureProbeScratch(w: number, h: number): CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D {
+    if (!this.probeScratch || this.probeScratch.width !== w || this.probeScratch.height !== h) {
+      this.probeScratch = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
+      this.probeCtx = this.probeScratch.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+    }
+    return this.probeCtx!;
+  }
+
+  /** Thumbnail from the full-resolution scratch canvas that copyNow just filled. */
+  private probeFromScratch(w: number, h: number): FrameProbe | undefined {
+    if (!this.scratch) return undefined;
+    const { width, height } = probeSize(w, h);
+    const ctx = this.ensureProbeScratch(width, height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this.scratch as CanvasImageSource, 0, 0, w, h, 0, 0, width, height);
+    return { width, height, rgba: new Uint8Array(ctx.getImageData(0, 0, width, height).data.buffer) };
+  }
+
   private copyNow(canvas: HTMLCanvasElement, region: NormRegion): { frame: CapturedGameFrame; blank: boolean } | null {
     const t0 = performance.now();
     const state = this.bridge.getState();
@@ -128,6 +178,7 @@ export class OcrFrameSource {
     ctx.drawImage(canvas, crop.x, crop.y, crop.w, crop.h, 0, 0, width, height);
     const img = ctx.getImageData(0, 0, width, height);
     const rgba = img.data.buffer as ArrayBuffer;
+    const probe = this.probeFromScratch(width, height);
 
     this.diag.captures++;
     this.diag.lastCaptureMs = performance.now() - t0;
@@ -136,6 +187,7 @@ export class OcrFrameSource {
     if (blank) this.diag.blankCaptures++;
 
     const frame: CapturedGameFrame = {
+      probe,
       frame: { frameId: `g${state.gameSessionId}s${state.sceneEpoch}f${++this.frameCounter}`, width, height, capturedAtMs: t0, rgba },
       meta: {
         gameSessionId: state.gameSessionId,
@@ -181,4 +233,10 @@ function contentFit(canvas: HTMLCanvasElement, box: CssRect): 'contain' | 'fill'
   // `scale-down` behaves like contain here (the backing store is never smaller than the box
   // by more than rounding); `cover`/`none` are not used by the shell.
   return fit === 'contain' || fit === 'scale-down' ? 'contain' : 'fill';
+}
+
+/** Probe size: ≤ 160 px wide, same aspect, at least 1×1. */
+export function probeSize(w: number, h: number): { width: number; height: number } {
+  const scale = Math.min(1, 160 / Math.max(1, w));
+  return { width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) };
 }

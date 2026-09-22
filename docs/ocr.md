@@ -111,8 +111,13 @@ elsewhere) that fire no event at all.
 until the user acts, an emulator advances dialogue, opens menus and animates without
 any pointer movement. The frame-change check therefore defaults to `rescan` (settings
 schema v3): when pixels under visible text change, the old text is kept but flagged
-and a new inference is requested immediately (throttled by the scan interval) — no
-mouse movement needed. PPSSPP's own pause menu (Escape) is special: it is drawn over
+and a new inference is requested once the picture has *settled* (two consecutive checks
+alike — a typewriter effect or an animation does not trigger an inference per check) — no
+mouse movement needed. The checks themselves are cheap: a ≤ 160 px thumbnail of the region
+is compared with the published frame's thumbnail (tolerant to < 0.6 % changed pixels, so a
+blinking dialogue cursor is not a change); the full-resolution copy is only taken for the
+inference. Measured idle (pointer over the game): 15 probes and 0 full captures in 8 s; a
+scene change is re-read ~2 s later on the SwiftShader test host without any pointer input. PPSSPP's own pause menu (Escape) is special: it is drawn over
 a dimmed copy of the game, so recognizing it yields fragments of the dimmed game text
 mixed with menu labels. Escape toggles an "emulator menu" state in which the layer is
 hidden and no scans run; the state clears on the next Escape or 700 ms after a click

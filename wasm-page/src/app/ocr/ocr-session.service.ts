@@ -88,6 +88,7 @@ export class OcrSessionService {
     this.controller = new OcrScanController(
       {
         capture: (region) => this.frames!.capture(region),
+        probe: (region) => this.frames!.probe(region),
         ocr: async (captured) => {
           if (!this.client) throw new Error('OCR client not ready');
           // Local, opt-in debugging (plan §14E: recognition logs stay local and opt-in):
@@ -120,7 +121,10 @@ export class OcrSessionService {
         onLayout: (p) => this.onLayout(p),
         onHit: (hit, pointer, published) => this.onHit(hit, pointer, published),
         onActivationChange: () => this.refreshVisibility(),
-        onDiagnostics: (d) => this.patchDiag({ controller: d, frames: { ...this.frames!.diag }, paragraphs: this.controller?.getPublished()?.layout.paragraphs.length ?? 0, lastOcrWarnings: this.lastWarnings }),
+        onDiagnostics: (d) => {
+          this.patchDiag({ controller: d, frames: { ...this.frames!.diag }, paragraphs: this.controller?.getPublished()?.layout.paragraphs.length ?? 0, lastOcrWarnings: this.lastWarnings });
+          if (localStorage.getItem('ppsspp_ocr_debug') === '1') (window as unknown as { __ppssppOcrDiag?: unknown }).__ppssppOcrDiag = { controller: d, frames: this.frames!.diag /* live */ };
+        },
         onError: (err, ctx) => this.patchDiag({ lastError: `${ctx}: ${(err as Error)?.message ?? err}` }),
       },
       this.settings(),
