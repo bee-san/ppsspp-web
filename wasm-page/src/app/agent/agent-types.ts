@@ -23,6 +23,8 @@ export interface AgentSettings {
   selectedScriptId: string;
   /** Pick the library script whose disc ID matches the running game automatically. */
   autoSelect: boolean;
+  /** With no working script for the game: find the dialogue buffer by correlating OCR'd lines with memory and create a watch script. */
+  autoDiscover: boolean;
   /**
    * How hooked text meets OCR: `replace` — OCR line text is swapped for the matching hooked
    * line (boxes stay OCR's); `supplement` — only lines OCR got wrong (low similarity) are
@@ -50,6 +52,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   scriptName: '',
   selectedScriptId: '',
   autoSelect: true,
+  autoDiscover: true,
   ocrMode: 'replace',
   matchThreshold: 0.5,
   websocketUrl: '',
@@ -81,7 +84,7 @@ export function saveAgentSettings(storage: StorageLike, s: AgentSettings): void 
 export function sanitizeAgentSettings(s: AgentSettings): AgentSettings {
   const d = DEFAULT_AGENT_SETTINGS;
   const out: AgentSettings = { ...s, schemaVersion: 1 };
-  for (const k of ['enabled', 'copyToClipboard', 'clipFromLine', 'showLog', 'autoSelect'] as const) out[k] = typeof out[k] === 'boolean' ? out[k] : d[k];
+  for (const k of ['enabled', 'copyToClipboard', 'clipFromLine', 'showLog', 'autoSelect', 'autoDiscover'] as const) out[k] = typeof out[k] === 'boolean' ? out[k] : d[k];
   out.selectedScriptId = typeof out.selectedScriptId === 'string' ? out.selectedScriptId.slice(0, 200) : '';
   out.script = typeof out.script === 'string' ? out.script.slice(0, 512 * 1024) : '';
   out.scriptName = typeof out.scriptName === 'string' ? out.scriptName.slice(0, 120) : '';

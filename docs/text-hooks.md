@@ -82,6 +82,16 @@ PPSSPPSDL.wasm (pthreads)  ──shared WebAssembly.Memory──▶  reading bri
   end to end on the test game: the finder returns `0x088a1860 shift_jis string start` and the
   generated script produces the next line on a page flip.
 
+* **Automatic discovery (default on).** With the hook enabled but no script producing lines
+  for the game, every OCR result is used as a probe: the longest on-screen lines are searched
+  in user RAM, and an address that holds *two different* on-screen lines in a row (only
+  string-start hits count) is the dialogue buffer — a `setWatch` script named
+  "[DISCID] Title (auto-discovered)" is generated, added to the library and selected, and
+  the badge next to the option reads "found". This turns the browser into a self-configuring
+  text hooker for games without a community script: play two lines of dialogue with OCR on.
+  Verified on the test game in `scripts/e2e-agent.mjs` (no script → page flip → found →
+  the generated script delivers the next line).
+
 ## What the text is used for
 
 1. **OCR layer correction** (default `replace`). After every recognition the controller's

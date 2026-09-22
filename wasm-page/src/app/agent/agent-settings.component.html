@@ -28,6 +28,8 @@
     </select>
   </label>
   <label class="ocr-row"><span class="ocr-row-main"><input type="checkbox" [checked]="s().autoSelect" (change)="onCheckbox('autoSelect', $event)" /> Pick the script for the running game automatically (by disc ID)</span></label>
+  <label class="ocr-row"><span class="ocr-row-main"><input type="checkbox" [checked]="s().autoDiscover" (change)="onCheckbox('autoDiscover', $event)" /> No script? Discover the dialogue buffer from the OCR text (needs OCR on; the address that holds two consecutive on-screen lines becomes a watch script)
+    @if (agent.discovering() === 'watching') { <span class="agent-badge">watching…</span> } @else if (agent.discovering() === 'found') { <span class="agent-badge ok">found</span> }</span></label>
 
   @if (selected(); as sc) {
     <div class="agent-selected">

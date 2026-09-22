@@ -275,6 +275,8 @@ export class OcrSessionService {
     // The canvas backing store can change without a CSS resize (SDL resizes it when a game
     // starts; ResizeObserver stays silent), so re-measure right before placing text.
     this.syncGeometry();
+    // Text hook auto-discovery correlates what is on screen with the game's memory.
+    if (p && !p.stale) this.agent.observeScreenText((p.rawSnapshot ?? p.snapshot).lines.map((l) => l.text));
     if (s.presentation === 'source-aligned') this.textLayer?.setLayout(p);
     else this.textLayer?.setLayout(null);
     // Any change of the published source (cleared OR replaced) labels a pinned card as outdated.
