@@ -798,10 +798,14 @@ body.panel-open aside { display: grid; }
   }
 
   body.panel-open .body-main { grid-template-columns: 1fr; }
+  /* With the drawer open, keep the game visible above it: canvas at the top of the stage, the
+     sheet takes what is left below a 16:9 canvas (but at least 40 % of the screen). */
+  body.panel-open .stage { align-items: flex-start; }
   body.panel-open aside {
     position: fixed;
     bottom: 0; left: 0; right: 0; z-index: 200;
-    height: min(calc(var(--app-h) * .72), calc(var(--app-h) - 72px));
+    height: max(calc(var(--app-h) * .4), calc(var(--app-h) - var(--h) - (var(--viewport-w) * 9 / 16) - 8px));
+    height: clamp(calc(var(--app-h) * .4), calc(var(--app-h) - var(--h) - (var(--viewport-w) * 9 / 16) - 8px), calc(var(--app-h) * .72));
     max-height: calc(var(--app-h) - env(safe-area-inset-top) - 12px);
     border-left: none;
     border-top: 1px solid var(--border2);
