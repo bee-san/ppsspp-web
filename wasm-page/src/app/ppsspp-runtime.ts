@@ -12,6 +12,7 @@ import {
   GitFork,
   HardDrive,
   Info,
+  Braces,
   Keyboard,
   Link2,
   Maximize,
@@ -43,6 +44,7 @@ const PPSSPP_ICONS = {
   GitFork,
   HardDrive,
   Info,
+  Braces,
   Keyboard,
   Link2,
   Maximize,
@@ -60,7 +62,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-09-21-open-game-fix';
+const RUNTIME_ASSET_VERSION = '2026-09-21-reading-bridge-v3';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {

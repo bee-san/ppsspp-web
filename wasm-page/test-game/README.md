@@ -18,6 +18,10 @@ Droid Sans Japanese (Apache 2.0).
   in Docker (`pspdev/pspdev:latest`). The built `EBOOT.PBP` is committed so CI does
   not need Docker.
 
+The game also keeps its current dialogue line in `g_line` (Shift-JIS, 160 bytes at
+`0x088a1860`) so a text-hook script can read it; `public/agent-scripts/test-game.js` is
+the matching Agent-style script and `scripts/e2e-agent.mjs` the end-to-end test.
+
 Used by `scripts/e2e-game-alignment.mjs`, which boots this EBOOT through the shell's
 Open Game path, enables OCR with one click and measures, per character, where the
 invisible DOM text is versus where the game drew the glyph — across panel toggles,

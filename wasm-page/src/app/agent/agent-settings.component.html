@@ -1,0 +1,92 @@
+<div class="ocr-settings agent-settings">
+  <label class="ocr-row">
+    <span class="ocr-row-main">
+      <input type="checkbox" [checked]="s().enabled" (change)="onCheckbox('enabled', $event)" aria-label="Enable text hook" />
+      <strong>Text hook</strong> — read the game's dialogue from memory with an Agent script
+    </span>
+  </label>
+  <p class="ocr-status" [class]="'ocr-status ' + statusClass()">{{ diag().message }}</p>
+
+  @if (agent.supported() === false) {
+    <p class="ocr-muted">This emulator runtime does not expose its memory (reading bridge v3 required).</p>
+  }
+
+  <p class="ocr-muted">
+    Text hooks give the exact text and the moment a line appeared — like GameSentenceMiner with Agent or Textractor.
+    Scripts use the <a href="https://github.com/0xDC00/scripts" target="_blank" rel="noopener">Agent script format</a>;
+    in the browser <code>setWatch(address → handler)</code> replaces <code>setHook</code> (no JIT breakpoints here).
+  </p>
+
+  <div class="ocr-field agent-script">
+    <span>Script @if (s().scriptName) {<em>— {{ s().scriptName }}</em>}</span>
+    @if (!editing()) {
+      <div class="agent-script-actions">
+        <button class="btn" type="button" (click)="startEdit()">{{ s().script ? 'Edit' : 'Paste' }} script</button>
+        <label class="btn" tabindex="0">Load file… <input type="file" accept=".js,.txt" hidden (change)="loadFile($event)" /></label>
+        <button class="btn" type="button" (click)="loadExample()" [disabled]="loadingExample()">Load test-game example</button>
+        @if (s().script) { <button class="btn" type="button" (click)="clearScript()">Remove</button> }
+      </div>
+    } @else {
+      <textarea class="agent-editor" rows="12" spellcheck="false" [value]="draft()" (input)="onDraft($event)" aria-label="Agent script source"></textarea>
+      <div class="agent-script-actions">
+        <button class="btn primary" type="button" (click)="saveEdit()">Save &amp; run</button>
+        <button class="btn" type="button" (click)="cancelEdit()">Cancel</button>
+      </div>
+    }
+  </div>
+
+  <label class="ocr-field">Use hooked text in the OCR layer
+    <select [value]="s().ocrMode" (change)="onSelect('ocrMode', $event)" aria-label="OCR text mode">
+      <option value="replace">Replace recognized text with the hooked line (default)</option>
+      <option value="supplement">Only where OCR read something different</option>
+      <option value="off">Don't touch the OCR layer</option>
+    </select>
+  </label>
+  <label class="ocr-field">Match threshold <span class="ocr-muted">({{ s().matchThreshold }})</span>
+    <input type="range" min="0.3" max="0.95" step="0.05" [value]="s().matchThreshold" (input)="onNumber('matchThreshold', $event)" aria-label="Match threshold" />
+  </label>
+
+  <label class="ocr-row">
+    <span class="ocr-row-main">
+      <input type="checkbox" [checked]="s().clipFromLine" (change)="onCheckbox('clipFromLine', $event)" />
+      Mining: start clips where the current line appeared (pre-roll <input class="btn agent-num" type="number" min="0" max="10000" step="100" [value]="s().clipPreRollMs" (change)="onNumber('clipPreRollMs', $event)" aria-label="Pre-roll ms" /> ms)
+    </span>
+  </label>
+  <label class="ocr-field">Mining: write the line into this Anki field (empty = don't)
+    <input class="btn" type="text" [value]="s().sentenceField" (change)="onText('sentenceField', $event)" placeholder="Sentence" aria-label="Sentence field" />
+  </label>
+  <label class="ocr-row">
+    <span class="ocr-row-main">
+      <input type="checkbox" [checked]="s().copyToClipboard" (change)="onCheckbox('copyToClipboard', $event)" />
+      Copy every line to the clipboard (texthooker → clipboard tools, GSM clipboard mode)
+    </span>
+  </label>
+  <label class="ocr-field">External text hooker WebSocket (optional)
+    <input class="btn" type="text" [value]="s().websocketUrl" (change)="onText('websocketUrl', $event)" placeholder="ws://localhost:9001 (Agent) · ws://localhost:6677 (Textractor)" aria-label="WebSocket URL" />
+    <span class="ocr-muted">Connection: {{ diag().websocket }}</span>
+  </label>
+
+  <div class="agent-feed">
+    <div class="agent-feed-head"><strong>Text feed</strong> <span class="ocr-muted">{{ diag().lines }} line(s) · arena {{ baseHex() }} · {{ diag().watches }} watch(es)</span>
+      <button class="btn" type="button" (click)="testLine()">Send test line</button>
+      <button class="btn" type="button" (click)="agent.clearLines()">Clear</button>
+    </div>
+    @if (recentLines().length === 0) {
+      <p class="ocr-muted">No lines yet.</p>
+    } @else {
+      <ol class="agent-lines">
+        @for (l of recentLines(); track l.id) {
+          <li><span class="agent-line-time">{{ fmtTime(l.wall) }}</span> <span class="agent-line-text">{{ l.text }}</span> <span class="ocr-muted">{{ l.source }}</span></li>
+        }
+      </ol>
+    }
+  </div>
+
+  <label class="ocr-row"><span class="ocr-row-main"><input type="checkbox" [checked]="s().showLog" (change)="onCheckbox('showLog', $event)" /> Show script log</span></label>
+  @if (s().showLog) {
+    <pre class="ocr-diag agent-log">@for (e of log(); track e.t + e.message) {[{{ e.level }}] {{ e.message }}
+}</pre>
+  }
+
+  <p class="ocr-muted ocr-mode"><a href="#" (click)="$event.preventDefault(); openOcr()">OCR settings</a> · <a href="#" (click)="$event.preventDefault(); openMining()">Mining</a> · <a href="#" (click)="$event.preventDefault(); openKeys()">Keys &amp; shortcuts</a></p>
+</div>

@@ -467,6 +467,16 @@ body.panel-open aside { display: grid; }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 .tab-panel { display: none; min-height: 0; overflow: hidden; flex: 1; }
 .tab-panel.active { display: flex; flex-direction: column; }
+/* Angular component hosts inside a tab: fill the tab and scroll their own content
+   (custom elements are inline by default, so long tabs — Keys, OCR, Text hook — were clipped). */
+.tab-panel > app-ocr-settings,
+.tab-panel > app-mining-settings,
+.tab-panel > app-agent-settings,
+.tab-panel > app-keys-help {
+  display: block; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: var(--border2) transparent;
+}
 
 #logPanel { position: relative; flex: 1; overflow: hidden; min-height: 0; }
 #log {
@@ -1575,7 +1585,7 @@ body.drive-connected .drive-sync-btn { display: inline-flex !important; }
 }
 
 /* Settings panel */
-.ocr-settings { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+.ocr-settings { display: flex; flex-direction: column; gap: 8px; font-size: 12px; padding: 10px 12px 14px; box-sizing: border-box; }
 .ocr-row { display: flex; align-items: center; gap: 8px; }
 .ocr-row-main { justify-content: space-between; }
 .ocr-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
@@ -1794,3 +1804,17 @@ input.mining-text { text-align: left; justify-content: flex-start; padding: 0 8p
   .mining-actions { grid-area: actions; align-self: end; }
   .mining-actions button { height: 36px; }
 }
+
+/* ── Text hook (Agent script) tab ─────────────────────────────── */
+.agent-settings .agent-script-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.agent-settings .agent-script-actions label.btn { cursor: pointer; }
+.agent-editor { width: 100%; box-sizing: border-box; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; resize: vertical; }
+.agent-num { width: 5.5em; padding: 2px 6px; }
+.agent-feed { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+.agent-feed-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
+.agent-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.agent-lines li { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.agent-line-time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; white-space: nowrap; }
+.agent-line-text { flex: 1; word-break: break-all; }
+.agent-log { max-height: 160px; overflow: auto; white-space: pre-wrap; }
+.ocr-text-layer.ocr-hooked .ocr-text-target[data-ocr-source="hook"] { text-decoration-color: rgba(120, 255, 180, 0.6); }

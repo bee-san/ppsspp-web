@@ -85,8 +85,8 @@ export class AnkiConnect {
   }
 
   /** Attach audio/picture to a note via `updateNoteFields` (fields stay untouched otherwise). */
-  async updateNoteMedia(noteId: number, media: UpdateNoteMediaInput): Promise<void> {
-    const note: Record<string, unknown> = { id: noteId, fields: {} };
+  async updateNoteMedia(noteId: number, media: UpdateNoteMediaInput, fields: Record<string, string> = {}): Promise<void> {
+    const note: Record<string, unknown> = { id: noteId, fields };
     if (media.audio) note['audio'] = [media.audio];
     if (media.picture) note['picture'] = [media.picture];
     await this.invoke('updateNoteFields', { note });

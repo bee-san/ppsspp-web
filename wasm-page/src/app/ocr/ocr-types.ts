@@ -192,6 +192,10 @@ export interface PublishedLayout {
   publishedAtMs: number;
   /** Set by the stale check ('mark' policy): source pixels changed since this was recognized. */
   stale?: boolean;
+  /** The recognizer's own output before any post-processing (hooked-text correction). */
+  rawSnapshot?: OcrSnapshot;
+  /** Line ids whose text was replaced by a text hook. */
+  hookedLineIds?: readonly string[];
 }
 
 export type HitPresentation = {

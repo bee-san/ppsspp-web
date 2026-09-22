@@ -113,6 +113,8 @@ export interface MiningSnapshot {
   audio: AudioSnapshot;
   frames: BufferedFrame[];
   gameId: string | null;
+  /** Latest text-hook line at hotkey time (text + when it appeared), when a hook is active. */
+  hookedLine?: { text: string; atMs: number } | null;
 }
 
 /** Result of the picker: wall-clock range within the snapshot. */

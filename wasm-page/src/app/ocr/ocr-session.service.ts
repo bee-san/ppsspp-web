@@ -5,7 +5,7 @@
  * controller, frame source, text layer / popup presentation, input gate and
  * region selection. The emulator is only touched through the reading bridge.
  */
-import { Injectable, signal } from '@angular/core';
+import { inject, Injectable, signal } from '@angular/core';
 import { createMeikiOcr, type AssetManifest, type MeikiOcrClient, type ProgressEvent } from 'meikiocr-web';
 import { buildMeikiPopLayout, hitTestMeikiPop } from 'meikiocr-web/meikipop';
 import type { TextHit } from 'meikiocr-web/meikipop';
@@ -20,6 +20,8 @@ import { OcrTextLayer } from './ocr-text-layer';
 import { OcrTextPopup } from './ocr-text-popup';
 import { FULL_REGION, type LifecycleEvent, type NormRegion, type OcrSettings, type PointerSample, type PublishedLayout } from './ocr-types';
 import { clientToNorm } from './ocr-coordinate-map';
+import { AgentSessionService } from '../agent/agent-session.service';
+import { applyHookedText } from '../agent/hooked-text-match';
 
 const HOTKEY_EVENT_KEYS: Record<string, string> = { shift: 'Shift', control: 'Control', alt: 'Alt', meta: 'Meta' };
 
@@ -44,6 +46,10 @@ export class OcrSessionService {
   private clientInit: Promise<void> | null = null;
   private clientRequest: { profile: string; backend: string; threads: number } | null = null;
   private unsubscribeLifecycle: (() => void) | null = null;
+  private readonly agent = inject(AgentSessionService);
+  /** Lines in the current layout whose text came from the text hook (diagnostics). */
+  readonly hookCorrected = signal(0);
+  private unsubscribeAgent: (() => void) | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private mutationObserver: MutationObserver | null = null;
   private geometryTimer: number | null = null;
@@ -96,6 +102,16 @@ export class OcrSessionService {
           this.lastWarnings = snapshot.diagnostics.warnings;
           return buildMeikiPopLayout(snapshot);
         },
+        // Text hook (Agent script / WebSocket hooker): swap recognized line text for the exact
+        // hooked string, keeping OCR's boxes — the extension then scans the game's real text.
+        postProcess: (snapshot) => {
+          const a = this.agent.settings();
+          if (!a.enabled || a.ocrMode === 'off') return { snapshot, hookedLineIds: [] };
+          const hooked = this.agent.lines().map((l) => l.text);
+          const r = applyHookedText(snapshot, hooked, { threshold: a.matchThreshold, mode: a.ocrMode });
+          this.hookCorrected.set(r.corrected.length);
+          return { snapshot: r.snapshot, hookedLineIds: r.corrected };
+        },
         hitTest: (layout, pt) => hitTestMeikiPop(layout, pt),
         sourceSize: () => {
           const vp = this.frames!.getViewport();
@@ -118,6 +134,11 @@ export class OcrSessionService {
     this.applyGamePrefs(st.gameId);
 
     this.installDomListeners();
+    // A hooked line that arrives after the frame was recognized still corrects the layout.
+    this.unsubscribeAgent = this.agent.onLine(() => {
+      const a = this.agent.settings();
+      if (a.enabled && a.ocrMode !== 'off') this.controller?.reprocess();
+    });
     this.syncGeometry();
     this.applySettingsToRuntime(this.settings());
     if (this.settings().enabled) void this.ensureModels();
@@ -499,6 +520,8 @@ export class OcrSessionService {
 
   dispose(): void {
     this.unsubscribeLifecycle?.();
+    this.unsubscribeAgent?.();
+    this.unsubscribeAgent = null;
     this.resizeObserver?.disconnect();
     this.mutationObserver?.disconnect();
     this.mutationObserver = null;

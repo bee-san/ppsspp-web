@@ -30,6 +30,14 @@ device-pixel-ratio changes. This is tested end to end in the real emulator with 
 small homebrew PSP program (`wasm-page/test-game/`, Japanese text at known
 positions) by `wasm-page/scripts/e2e-game-alignment.mjs`, which runs in CI.
 
+**Text hooks.** The **Text hook** tab runs [Agent](https://github.com/0xDC00/agent)-style
+scripts in the browser against the emulated PSP memory (no desktop process): the script
+reads the game's dialogue string as the game writes it, so the OCR layer shows the exact
+text and mined clips start where the line appeared and carry it in the `Sentence` field —
+the GameSentenceMiner model. `setWatch(address → handler)` stands in for Agent's `setHook`
+(the prebuilt emulator has no JIT breakpoints); an external hooker WebSocket is also
+accepted. See `docs/text-hooks.md`.
+
 This repository contains:
 
 - `wasm-page/`: Angular app, browser UI, service worker, manifest, and icons.

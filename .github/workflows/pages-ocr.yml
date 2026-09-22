@@ -63,6 +63,10 @@ jobs:
         run: |
           cd wasm-page
           E2E_PATH_PREFIX=/ppsspp-web node scripts/e2e-mining-game.mjs
+      - name: Text hook E2E on the exact artifact (Agent script → lines, OCR correction, mining Sentence field)
+        run: |
+          cd wasm-page
+          E2E_PATH_PREFIX=/ppsspp-web node scripts/e2e-agent.mjs
       - name: Overlay alignment E2E on the exact artifact (real emulator + Japanese-text homebrew, DOM glyphs vs known ink boxes)
         run: |
           cd wasm-page

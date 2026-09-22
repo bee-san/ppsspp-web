@@ -7,7 +7,7 @@
  * only touched through the reading bridge (v2).
  */
 import { openPanelTab } from '../panel-tabs';
-import { Injectable, signal } from '@angular/core';
+import { inject, Injectable, signal } from '@angular/core';
 import type { LifecycleEvent } from '../ocr/ocr-types';
 import { AnkiConnect, AnkiConnectError, blobToBase64, mediaFilename } from './anki-connect';
 import { AudioRingBuffer } from './audio-ring-buffer';
@@ -18,6 +18,7 @@ import { MiningRuntimeBridge } from './mining-runtime-bridge';
 import { hotkeyMatches, loadMiningSettings, resetMiningSettings, sanitizeMiningSettings, saveMiningSettings } from './mining-settings';
 import { emptyMiningDiagnostics, type EncodedClip, type MiningDiagnostics, type MiningSelection, type MiningSettings, type MiningSnapshot } from './mining-types';
 import { Mp3EncoderClient } from './mp3-encoder';
+import { AgentSessionService } from '../agent/agent-session.service';
 import { muxTimedFrames } from './webp-animation-muxer';
 
 export type PickerPhase = 'select' | 'encoding' | 'sending' | 'done' | 'error';
@@ -57,6 +58,7 @@ export class MiningSessionService {
   private diagTimer: ReturnType<typeof setInterval> | null = null;
   private attached = false;
   private gameRunning = false;
+  private readonly agent = inject(AgentSessionService);
   private documentVisible = true;
   private lastSelection: MiningSelection | null = null;
 
@@ -246,6 +248,11 @@ export class MiningSessionService {
       this.toast('Nothing buffered yet — start a game first');
       return;
     }
+    // Text hook: the latest line and when it appeared (GameSentenceMiner-style timing —
+    // the clip starts where the line came up instead of a fixed length before "now").
+    const a = this.agent.settings();
+    const latest = a.enabled ? this.agent.latest() : null;
+    const hookedLine = latest ? { text: latest.text, atMs: latest.at } : null;
     const snapshot: MiningSnapshot = {
       nowMs,
       audioStartMs,
@@ -253,8 +260,13 @@ export class MiningSessionService {
       audio: this.audio.clone(),
       frames: this.frames.slice(audioStartMs - 1000, audioEndMs + 1000),
       gameId: this.gameId(),
+      hookedLine,
     };
-    const initial = defaultRange(audioStartMs, audioEndMs, s.defaultClipSeconds * 1000);
+    let initial = defaultRange(audioStartMs, audioEndMs, s.defaultClipSeconds * 1000);
+    if (hookedLine && a.clipFromLine) {
+      const from = Math.max(audioStartMs, Math.min(audioEndMs - 200, hookedLine.atMs - a.clipPreRollMs));
+      if (audioEndMs - from >= 200) initial = { fromMs: from, toMs: audioEndMs };
+    }
     if (!s.showPicker) {
       const sel: MiningSelection = s.imageMode === 'screenshot' ? { ...initial, frameAtMs: (initial.fromMs + initial.toMs) / 2 } : initial;
       this.picker.set({ snapshot, initial: sel, phase: 'encoding', progress: 0, message: 'Encoding…', encoded: null });
@@ -394,7 +406,12 @@ export class MiningSessionService {
     if (clip.image && s.pictureField.trim()) {
       media.picture = { data: await blobToBase64(clip.image), filename: clip.imageFilename, fields: [s.pictureField] };
     }
-    await anki.updateNoteMedia(noteId, media);
+    // Text hook: put the exact line into the sentence field (GSM overwrites it the same way).
+    const fields: Record<string, string> = {};
+    const a = this.agent.settings();
+    const line = this.picker()?.snapshot.hookedLine;
+    if (a.enabled && a.sentenceField.trim() && line?.text) fields[a.sentenceField.trim()] = line.text;
+    await anki.updateNoteMedia(noteId, media, fields);
     if (s.tag) await anki.addTags([noteId], s.tag);
     return noteId;
   }
