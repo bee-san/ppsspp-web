@@ -3,6 +3,8 @@ import { openPanelTab } from '../panel-tabs';
 import { AgentSessionService } from './agent-session.service';
 import type { AgentSettings } from './agent-types';
 import type { CatalogEntry, LibraryScript } from './script-library';
+import type { TextHit } from './text-finder';
+import { OcrSessionService } from '../ocr/ocr-session.service';
 
 /**
  * "Text hook" tab: pick a script for the running game (auto by disc ID, or from the library),
@@ -17,6 +19,7 @@ import type { CatalogEntry, LibraryScript } from './script-library';
 })
 export class AgentSettingsComponent {
   readonly agent = inject(AgentSessionService);
+  private readonly ocr = inject(OcrSessionService);
   readonly s = this.agent.settings;
   readonly diag = this.agent.diagnostics;
   readonly lines = this.agent.lines;
@@ -30,6 +33,10 @@ export class AgentSettingsComponent {
   readonly draft = signal('');
   readonly showLibrary = signal(false);
   readonly showImport = signal(false);
+  readonly showFinder = signal(false);
+  readonly finderText = signal('');
+  readonly finderHits = signal<TextHit[] | null>(null);
+  readonly finderBusy = signal(false);
   readonly query = signal('');
   readonly recentLines = computed(() => this.lines().slice(-8).reverse());
   readonly statusClass = computed(() => {
@@ -146,6 +153,37 @@ export class AgentSettingsComponent {
     const sc = await this.agent.importFromUrl(url);
     if (sc) input.value = '';
   }
+
+  // ── memory text finder ──
+  openFinder(): void {
+    this.showFinder.set(true);
+    if (!this.finderText()) this.prefillFromScreen();
+  }
+  /** Take the longest line the OCR layer currently shows as the search text. */
+  prefillFromScreen(): void {
+    const lines = Array.from(document.querySelectorAll<HTMLElement>('.ocr-text-target')).reduce<Map<string, string>>((m, el) => { const id = el.dataset['ocrLine'] ?? ''; m.set(id, (m.get(id) ?? '') + (el.textContent ?? '')); return m; }, new Map());
+    const best = Array.from(lines.values()).sort((a, b) => b.length - a.length)[0] ?? '';
+    if (best) this.finderText.set(best);
+    else if (!this.ocr.settings().enabled) this.finderText.set('');
+  }
+  onFinderText(ev: Event): void {
+    this.finderText.set((ev.target as HTMLInputElement).value);
+  }
+  async runFinder(): Promise<void> {
+    const t = this.finderText().trim();
+    if (Array.from(t).length < 2) return;
+    this.finderBusy.set(true);
+    try {
+      this.finderHits.set(await this.agent.findTextInMemory(t));
+    } finally {
+      this.finderBusy.set(false);
+    }
+  }
+  useHit(h: TextHit): void {
+    this.agent.createWatchScript(h);
+    this.showFinder.set(false);
+  }
+  hex(n: number): string { return '0x' + n.toString(16).padStart(8, '0'); }
 
   testLine(): void {
     this.agent.injectLine('テスト行です。', 'script', 'manual');

@@ -16,6 +16,7 @@ import { computed, Injectable, signal } from '@angular/core';
 import { DEFAULT_AGENT_SETTINGS, loadAgentSettings, saveAgentSettings, type AgentDiagnostics, type AgentSettings, type GameIdentity, type HookedLine } from './agent-types';
 import { parseUserScriptHeader } from './agent-runtime-api';
 import { readGameMeta } from './game-meta';
+import { findText, suggestWatchSize, watchScriptFor, type TextHit } from './text-finder';
 import { analyzeScript, BUNDLED_SCRIPTS, CATALOG_API, loadCatalogCache, loadLibrary, parseCatalog, saveCatalogCache, saveLibrary, scriptFromSource, scriptsForDisc, searchCatalog, type CatalogEntry, type LibraryScript } from './script-library';
 import type { AgentWorkerRequest, AgentWorkerResponse } from './agent-sandbox.worker';
 import type { BridgeState, LifecycleEvent } from '../ocr/ocr-types';
@@ -191,6 +192,38 @@ export class AgentSessionService {
 
   analyze(source: string) {
     return analyzeScript(source);
+  }
+
+  /**
+   * Search the emulated user RAM (0x08800000–0x0a000000, 24 MiB, read in 1 MiB windows) for
+   * `text` in Shift-JIS / UTF-8 / UTF-16LE. Yields to the event loop between windows.
+   */
+  async findTextInMemory(text: string): Promise<TextHit[]> {
+    const b = this.bridge;
+    if (!b || b.guestMemory.base() < 0) return [];
+    const { user, end } = b.guestMemory.layout;
+    const WIN = 1 << 20;
+    const hits: TextHit[] = [];
+    for (let a = user; a < end && hits.length < 64; a += WIN) {
+      const bytes = b.guestMemory.read(a, Math.min(WIN, end - a) + 512); // overlap so matches on a window edge are found
+      if (!bytes) break;
+      hits.push(...findText(text, [{ start: a, bytes }], { max: 64 - hits.length }));
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    // de-duplicate overlap matches
+    const seen = new Set<string>();
+    return hits.filter((h) => { const k = h.encoding + h.address; if (seen.has(k)) return false; seen.add(k); return true; });
+  }
+
+  /** Build and add a user script watching the found address; selects it. */
+  createWatchScript(hit: TextHit): LibraryScript {
+    const b = this.bridge!;
+    const probe = b.guestMemory.read(hit.address, 1024) ?? new Uint8Array(0);
+    const size = suggestWatchSize(probe, hit.encoding);
+    const src = watchScriptFor(hit.address, hit.encoding, size, this.game());
+    const sc = this.addScript(src, 'user', { select: true });
+    if (!this.settings().enabled) this.update({ enabled: true });
+    return sc;
   }
 
   /** Load the community catalog (GitHub listing of 0xDC00/scripts, cached for a day). */

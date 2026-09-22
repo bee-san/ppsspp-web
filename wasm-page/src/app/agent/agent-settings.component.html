@@ -49,8 +49,33 @@
   <div class="agent-script-actions">
     <button class="btn" type="button" (click)="openImport()">Import from the Agent script repo…</button>
     <label class="btn" tabindex="0">Load .js file(s)… <input type="file" accept=".js,.txt" multiple hidden (change)="loadFile($event)" /></label>
+    <button class="btn" type="button" (click)="openFinder()" [disabled]="diag().base < 0" [title]="diag().base < 0 ? 'Start a game first' : 'Search the game\'s memory for text that is on screen now'">Find text in memory…</button>
     <button class="btn" type="button" (click)="startNew()">Write one</button>
   </div>
+
+  @if (showFinder()) {
+    <div class="agent-import">
+      <div class="agent-feed-head"><strong>Find the dialogue in memory</strong> <button class="btn" type="button" (click)="showFinder.set(false)">Close</button></div>
+      <p class="ocr-muted">Type (or take from the OCR layer) a few characters that are on screen right now; every place the game keeps them is listed. Pick the one that changes when the dialogue advances — that becomes a <code>setWatch</code> script for this game.</p>
+      <div class="agent-script-actions">
+        <input class="btn agent-search" type="text" [value]="finderText()" (input)="onFinderText($event)" (keydown.enter)="runFinder()" placeholder="Text on screen, e.g. ここは静かな村だ" aria-label="Text to find" />
+        <button class="btn" type="button" (click)="prefillFromScreen()">From OCR layer</button>
+        <button class="btn primary" type="button" (click)="runFinder()" [disabled]="finderBusy()">{{ finderBusy() ? 'Searching…' : 'Search' }}</button>
+      </div>
+      @if (finderHits(); as hits) {
+        @if (hits.length === 0) { <p class="ocr-muted">Not found in user RAM as Shift-JIS, UTF-8 or UTF-16. The game may store text in another encoding or decompress it on the fly.</p> }
+        @else {
+          <ul class="agent-catalog">
+            @for (h of hits; track h.encoding + h.address) {
+              <li><span class="agent-cat-title"><code>{{ hex(h.address) }}</code> {{ h.encoding }}@if (h.atStringStart) { <span class="agent-badge ok">string start</span> }</span>
+                <span class="ocr-muted">{{ h.preview }}</span>
+                <button class="btn" type="button" (click)="useHit(h)">Use as watch</button></li>
+            }
+          </ul>
+        }
+      }
+    </div>
+  }
 
   @if (showImport()) {
     <div class="agent-import">
