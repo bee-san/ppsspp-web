@@ -166,6 +166,24 @@ select.btn option { background: var(--surface2); }
 /* hide badges on very small screens */
 @media (max-width: 520px) { .badge { display: none; } }
 
+/* ── Medium widths (tablets, small laptop windows): the header must never overlap.
+   Drop the least useful items first, then go icon-only. Below 700 px the mobile rules apply. */
+@media (min-width: 701px) and (max-width: 1180px) {
+  #gpuBadge, .top-official-link { display: none; }
+  .btn-lbl { display: none; }
+  #fileLabel, #startBtn, #runtimeIsoLabel { padding-left: 8px; padding-right: 8px; }
+  .badge { max-width: 140px; }
+}
+@media (min-width: 701px) and (max-width: 980px) {
+  #gpuSelectWrap, .gpu-sep { display: none; }
+  #gamepadBadge { display: none; }
+  #gamepadSelect { max-width: 120px; }
+}
+@media (min-width: 701px) and (max-width: 860px) {
+  #gamepadSelect { display: none; }
+  header { gap: 6px; }
+}
+
 /* ── Main area ───────────────────────────────────────── */
 .body-main {
   flex: 1; min-height: 0;
