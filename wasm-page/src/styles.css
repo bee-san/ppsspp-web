@@ -1848,8 +1848,10 @@ input.mining-text { text-align: left; justify-content: flex-start; padding: 0 8p
 #fsToolbar:hover, #fsToolbar:focus-within, body.fs-toolbar-visible #fsToolbar { opacity: 1; }
 #fsToolbar .btn { height: 34px; min-width: 34px; width: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 body.browser-fullscreen #fsToolbar { display: flex; }
-body.browser-fullscreen.fs-cursor-hidden #fsToolbar { opacity: 0; pointer-events: none; }
-body.browser-fullscreen.fs-cursor-hidden #fsToolbar:hover { opacity: 1; pointer-events: auto; }
+/* Idle: fade but stay tappable (a touch has no hover to reveal it first). */
+body.browser-fullscreen.fs-cursor-hidden #fsToolbar { opacity: .18; }
+body.browser-fullscreen.fs-cursor-hidden #fsToolbar:hover, body.browser-fullscreen.fs-cursor-hidden #fsToolbar:active { opacity: 1; }
+@media (pointer: coarse) { body.browser-fullscreen.fs-cursor-hidden #fsToolbar { opacity: .35; } }
 /* .body-main is the fullscreen element (stage + aside): size it to the screen */
 .body-main:fullscreen, .body-main:-webkit-full-screen { width: 100vw !important; height: 100vh !important; background: #000; }
 .body-main:fullscreen .stage, .body-main:-webkit-full-screen .stage { padding: 0 !important; background: #000 !important; display: flex !important; align-items: center !important; justify-content: center !important; min-height: 0; }

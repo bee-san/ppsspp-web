@@ -58,6 +58,10 @@ jobs:
         run: |
           cd wasm-page
           node scripts/e2e-agent.mjs
+      - name: Mobile layout E2E (phone viewports: header fit, drawer scroll, game visible with drawer open, landscape auto-fullscreen toolbar/panel, picker fit)
+        run: |
+          cd wasm-page
+          node scripts/e2e-mobile.mjs
       - name: Overlay alignment E2E (real emulator + Japanese-text homebrew, DOM glyphs vs known ink boxes across resize/fullscreen/DPR/scroll/scene change)
         run: |
           cd wasm-page
