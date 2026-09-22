@@ -199,6 +199,34 @@ await page.waitForFunction(() => /Script running/.test(document.querySelector("a
 const genName = await page.evaluate(() => document.querySelector("app-agent-settings select.agent-select option:checked")?.textContent?.trim());
 check(/^\[JPTX00001\] JP Text Alignment Test$/.test(genName ?? ""), `generated watch script selected and running: "${genName}"`);
 await flipAndExpectFeed("flip with the generated script");
+// ── Automatic discovery: no script selected, auto-select off, OCR on → two page flips give two
+// on-screen lines at the same address → a watch script is generated and starts producing lines.
+await page.evaluate(() => { const sel = document.getElementById("panelTabSelect"); sel.value = "hook"; sel.dispatchEvent(new Event("change", { bubbles: true })); });
+await page.click("app-agent-settings input[aria-label='Enable text hook']"); // off
+await page.evaluate(() => { const s = JSON.parse(localStorage.getItem("ppsspp_agent_settings_v1")); s.autoSelect = false; s.selectedScriptId = ""; s.script = ""; s.scriptName = ""; s.enabled = true; localStorage.setItem("ppsspp_agent_settings_v1", JSON.stringify(s)); });
+await page.reload();
+await page.waitForFunction(() => !!window.PpssppReadingBridge && window.crossOriginIsolated, null, { timeout: 30_000 });
+await page.setInputFiles("#gameFile", resolve("test-game/EBOOT.PBP"));
+await page.click("#startBtn");
+await page.waitForFunction(() => window.PpssppReadingBridge.getState().phase === "running", null, { timeout: 240_000 });
+await page.waitForFunction(() => { const b = window.PpssppReadingBridge.guestMemory.read(0x088a1860, 64); return b && b[0] !== 0 && !(b[0] === 0x69 && b[1] === 0x6e); }, null, { timeout: 120_000, ...POLL }).catch(() => {});
+await page.evaluate(() => { document.body.classList.add("panel-open"); const sel = document.getElementById("panelTabSelect"); sel.value = "hook"; sel.dispatchEvent(new Event("change", { bubbles: true })); });
+await page.waitForTimeout(500);
+const d0 = await page.evaluate(() => ({ sel: document.querySelector("app-agent-settings select.agent-select").value, status: document.querySelector("app-agent-settings .ocr-status")?.textContent?.trim(), settings: JSON.parse(localStorage.getItem("ppsspp_agent_settings_v1")) }));
+check(d0.sel === "" && /No script for this game|Select a script/.test(d0.status), `discovery scenario: hook on, no script selected ${JSON.stringify({ sel: d0.sel, status: d0.status, autoSelect: d0.settings.autoSelect, enabled: d0.settings.enabled })}`);
+// OCR stayed enabled across the reload (persisted setting); only click if it is off.
+if (!(await page.evaluate(() => JSON.parse(localStorage.getItem("ppsspp_ocr_settings_v1") || "{}").enabled))) await page.click("#ocrToggleBtn");
+await page.waitForFunction(() => document.querySelectorAll(".ocr-text-target").length >= 10, null, { timeout: 240_000, polling: 500 });
+for (let i = 0; i < 6; i++) { await page.mouse.move(700 + i * 5, 500); await page.waitForTimeout(500); }
+await page.waitForFunction(() => /watching|found/.test(document.querySelector("app-agent-settings .agent-badge")?.textContent ?? ""), null, { timeout: 30_000, ...POLL }).catch(() => {});
+// second line on screen: flip the page
+await page.click("#canvas", { position: { x: 20, y: 20 } });
+await pressHeld("z");
+for (let i = 0; i < 20; i++) { await page.mouse.move(700 + (i % 5) * 5, 500 + (i % 3) * 3); await page.waitForTimeout(500); if (await page.evaluate(() => /found/.test(Array.from(document.querySelectorAll("app-agent-settings .agent-badge")).map((b) => b.textContent).join(" ")))) break; }
+const disc = await page.evaluate(() => ({ badge: Array.from(document.querySelectorAll("app-agent-settings .agent-badge")).map((b) => b.textContent.trim()), selected: document.querySelector("app-agent-settings select.agent-select option:checked")?.textContent?.trim(), status: document.querySelector("app-agent-settings .ocr-status")?.textContent?.trim() }));
+check(disc.badge.includes("found") && /auto-discovered/.test(disc.selected ?? ""), `auto-discovery found the dialogue buffer and created + selected a script: ${JSON.stringify(disc)}`);
+await page.waitForFunction(() => /Script running/.test(document.querySelector("app-agent-settings .ocr-status")?.textContent ?? ""), null, { timeout: 30_000, ...POLL }).catch(() => {});
+await flipAndExpectFeed("flip with the auto-discovered script");
 check(errs.length === 0, `no uncaught page errors${errs.length ? ": " + errs.slice(0, 3).join(" | ") : ""}`);
 await browser.close();
 server.close();

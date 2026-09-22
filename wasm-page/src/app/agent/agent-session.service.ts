@@ -199,28 +199,100 @@ export class AgentSessionService {
    * `text` in Shift-JIS / UTF-8 / UTF-16LE. Yields to the event loop between windows.
    */
   async findTextInMemory(text: string): Promise<TextHit[]> {
+    return (await this.findTextsInMemory([text])).get(text) ?? [];
+  }
+
+  /** Same, for several strings in one pass over memory. */
+  async findTextsInMemory(texts: readonly string[]): Promise<Map<string, TextHit[]>> {
+    const out = new Map<string, TextHit[]>(texts.map((t) => [t, []]));
     const b = this.bridge;
-    if (!b || b.guestMemory.base() < 0) return [];
+    if (!b || b.guestMemory.base() < 0 || !texts.length) return out;
     const { user, end } = b.guestMemory.layout;
     const WIN = 1 << 20;
-    const hits: TextHit[] = [];
-    for (let a = user; a < end && hits.length < 64; a += WIN) {
+    for (let a = user; a < end; a += WIN) {
       const bytes = b.guestMemory.read(a, Math.min(WIN, end - a) + 512); // overlap so matches on a window edge are found
       if (!bytes) break;
-      hits.push(...findText(text, [{ start: a, bytes }], { max: 64 - hits.length }));
+      for (const t of texts) {
+        const acc = out.get(t)!;
+        if (acc.length >= 64) continue;
+        acc.push(...findText(t, [{ start: a, bytes }], { max: 64 - acc.length }));
+      }
       await new Promise((r) => setTimeout(r, 0));
     }
-    // de-duplicate overlap matches
-    const seen = new Set<string>();
-    return hits.filter((h) => { const k = h.encoding + h.address; if (seen.has(k)) return false; seen.add(k); return true; });
+    for (const [t, hits] of out) {
+      const seen = new Set<string>();
+      out.set(t, hits.filter((h) => { const k = h.encoding + h.address; if (seen.has(k)) return false; seen.add(k); return true; }));
+    }
+    return out;
+  }
+
+  // ─────────────────────────── automatic discovery ───────────────────────────
+  //
+  // No working script for this game? Every time the OCR layer publishes new text we search
+  // the user RAM for its longest line. An address that holds the on-screen line for TWO
+  // different lines in a row is the game's dialogue buffer → generate a setWatch script for
+  // it (like the "Find text in memory" button, but hands-free).
+  private discoverySeen = new Map<number, { texts: Set<string>; encoding: string; lastText: string }>();
+  private discoveryBusy = false;
+  private discoveryLastText = '';
+  private discoveryDoneFor = '';
+  readonly discovering = signal<'off' | 'watching' | 'found'>('off');
+
+  /** Called by the OCR layer with the recognized lines of each published layout. */
+  observeScreenText(lines: readonly string[]): void {
+    const s = this.settings();
+    if (!s.enabled || !s.autoDiscover || !this.bridge || !this.gameRunning) return;
+    if (this.bridge.guestMemory.base() < 0) return;
+    const gameKey = this.game().discId ?? this.game().fileName ?? '';
+    if (this.discoveryDoneFor === gameKey) return;
+    // A working script already produces lines for this game: nothing to discover.
+    const last = this.lines().at(-1);
+    if (last && last.source === 'script' && performance.now() - last.at < 60_000) return;
+    // The longest few lines on screen (a dialogue box's first line is usually the buffer start;
+    // its second line sits mid-buffer, so every line is tried and only string-start hits count).
+    const candidates = Array.from(new Set(lines.map((l) => l.replace(/\s+/g, '')).filter((l) => Array.from(l).length >= 4))).sort((a, b) => b.length - a.length).slice(0, 4);
+    const key = candidates.join('\n');
+    if (!candidates.length || key === this.discoveryLastText || this.discoveryBusy) return;
+    this.discoveryLastText = key;
+    this.discovering.set('watching');
+    this.discoveryBusy = true;
+    const needles = candidates.map((c) => Array.from(c).slice(0, 12).join(''));
+    void this.findTextsInMemory(needles)
+      .then((byText) => {
+        const hits: TextHit[] = [];
+        needles.forEach((n, i) => {
+          for (const h of byText.get(n) ?? []) {
+            hits.push(h);
+            if (!h.atStringStart) continue;
+            const e = this.discoverySeen.get(h.address) ?? { texts: new Set<string>(), encoding: h.encoding, lastText: '' };
+            e.texts.add(candidates[i]);
+            e.lastText = candidates[i];
+            this.discoverySeen.set(h.address, e);
+          }
+        });
+        // Two distinct lines at the same address → that is the buffer.
+        const found = Array.from(this.discoverySeen.entries()).filter(([, e]) => e.texts.size >= 2).sort((a, b) => b[1].texts.size - a[1].texts.size)[0];
+        if (found) {
+          const [address, e] = found;
+          const hit = hits.find((h) => h.address === address) ?? { address, encoding: e.encoding as 'shift_jis', length: 0, preview: e.lastText, atStringStart: true };
+          const sc = this.createWatchScript(hit, { autoDiscovered: true });
+          this.discoveryDoneFor = gameKey;
+          this.discovering.set('found');
+          this.pushLog('info', `auto-discovered the dialogue buffer at 0x${address.toString(16)} (${e.encoding}) from ${e.texts.size} on-screen lines → "${sc.name}"`);
+          this.discoverySeen.clear();
+        }
+      })
+      .catch((err) => this.pushLog('warn', 'discovery failed: ' + String(err)))
+      .finally(() => (this.discoveryBusy = false));
   }
 
   /** Build and add a user script watching the found address; selects it. */
-  createWatchScript(hit: TextHit): LibraryScript {
+  createWatchScript(hit: TextHit, opts: { autoDiscovered?: boolean } = {}): LibraryScript {
     const b = this.bridge!;
     const probe = b.guestMemory.read(hit.address, 1024) ?? new Uint8Array(0);
     const size = suggestWatchSize(probe, hit.encoding);
-    const src = watchScriptFor(hit.address, hit.encoding, size, this.game());
+    const g = this.game();
+    const src = watchScriptFor(hit.address, hit.encoding, size, { discId: g.discId, title: (g.title ?? g.fileName ?? 'Game') + (opts.autoDiscovered ? ' (auto-discovered)' : '') });
     const sc = this.addScript(src, 'user', { select: true });
     if (!this.settings().enabled) this.update({ enabled: true });
     return sc;
@@ -324,6 +396,9 @@ export class AgentSessionService {
       this.game.set(sameFile ? { ...this.game(), fileName: ev.gameId } : { fileName: ev.gameId, discId: null, title: null });
       if (!sameFile && f) void this.identifyGame(f);
       // new game → new memory layout; re-locate and restart the script
+      this.discoverySeen.clear();
+      this.discoveryLastText = '';
+      this.discovering.set('off');
       this.restartWorker();
     } else if (ev.type === 'game-file') {
       if (ev.file) void this.identifyGame(ev.file);
