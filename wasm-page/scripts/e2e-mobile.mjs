@@ -91,6 +91,9 @@ for (const [label, opts] of [["320x640", { viewport: { width: 320, height: 640 }
 {
   const ctx = await browser.newContext({ ...devices["Pixel 5 landscape"], hasTouch: true }); const page = await ctx.newPage();
   await boot(page);
+  // The emulator requests fullscreen itself some time after boot (slower on CI runners).
+  await page.waitForFunction(() => !!document.fullscreenElement, null, { timeout: 60_000, polling: 250 }).catch(() => {});
+  await page.waitForTimeout(500);
   const st = await page.evaluate(() => ({ fsEl: document.fullscreenElement?.className ?? null, toolbar: getComputedStyle(document.getElementById("fsToolbar")).display, atTopRight: document.elementFromPoint(innerWidth - 20, 20)?.id }));
   check(st.fsEl !== null && st.fsEl !== "" && !/canvas/i.test(st.fsEl), `landscape: emulator fullscreen redirected to the shell container (fullscreenElement ${JSON.stringify(st.fsEl)})`);
   check(st.toolbar === "flex" && st.atTopRight === "fsExitBtn", `landscape: floating toolbar visible and on top (${st.toolbar}, top-right hit: ${st.atTopRight})`);
