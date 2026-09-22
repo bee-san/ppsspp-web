@@ -201,11 +201,16 @@ for (const t of result.targets.slice(0, 30)) console.log(`  "${t.text}" @ (${t.l
 }
 // Hover the first target and check the popup/active glyph highlight follows
 if (result.targets.length) {
-  const el = page.locator(".ocr-text-target").first();
-  const b = await el.boundingBox();
-  await page.mouse.move(b.x + Math.min(8, b.width / 2), b.y + b.height / 2);
-  await page.waitForTimeout(200);
-  const hit = await page.evaluate(() => ({ active: document.querySelector(".ocr-active-target")?.textContent ?? null, highlightVisible: !document.querySelector(".ocr-active-glyph")?.hidden }));
+  // The layer may be republished between queries (the menu animates → automatic re-scan), so
+  // read a target's box atomically and retry a few times.
+  let hit = { active: null, highlightVisible: false };
+  for (let attempt = 0; attempt < 5 && !(hit.active && hit.highlightVisible); attempt++) {
+    const b = await page.evaluate(() => { const el = document.querySelector(".ocr-text-target"); if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 ? { x: r.left, y: r.top, width: r.width, height: r.height } : null; });
+    if (!b) { await page.waitForTimeout(500); continue; }
+    await page.mouse.move(b.x + Math.min(8, b.width / 2), b.y + b.height / 2);
+    await page.waitForTimeout(300);
+    hit = await page.evaluate(() => ({ active: document.querySelector(".ocr-active-target")?.textContent ?? null, highlightVisible: !document.querySelector(".ocr-active-glyph")?.hidden }));
+  }
   check(!!hit.active && hit.highlightVisible, `hover activates target: ${JSON.stringify(hit)}`);
 }
 await page.screenshot({ path: "/tmp/emu-ocr.png" });

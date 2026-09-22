@@ -21,14 +21,15 @@ describe('ocr settings store', () => {
   it('defaults: invisible exact per-character layer (MeikiPop-like)', () => {
     expect(DEFAULT_OCR_SETTINGS.overlayTextVisible).toBe(false);
     expect(DEFAULT_OCR_SETTINGS.textLayerStrategy).toBe('glyph-spans');
-    expect(DEFAULT_OCR_SETTINGS.schemaVersion).toBe(2);
+    expect(DEFAULT_OCR_SETTINGS.schemaVersion).toBe(3);
+    expect(DEFAULT_OCR_SETTINGS.stalePolicy).toBe('rescan');
   });
 
   it('migrates v1: old default line-text → glyph-spans, other choices kept, layer invisible', () => {
     const st = mem();
     st.setItem('ppsspp_ocr_settings_v1', JSON.stringify({ schemaVersion: 1, enabled: true, modelDownloadConsent: true, textLayerStrategy: 'line-text', hotkey: 'alt', scanIntervalMs: 800, overlayTextVisible: true }));
     const s = loadSettings(st);
-    expect(s.schemaVersion).toBe(2);
+    expect(s.schemaVersion).toBe(3);
     expect(s.textLayerStrategy).toBe('glyph-spans');
     expect(s.overlayTextVisible).toBe(false);
     expect(s.enabled).toBe(true);
@@ -38,6 +39,17 @@ describe('ocr settings store', () => {
     // an explicit v1 glyph-spans choice is untouched
     st.setItem('ppsspp_ocr_settings_v1', JSON.stringify({ schemaVersion: 1, textLayerStrategy: 'glyph-spans' }));
     expect(loadSettings(st).textLayerStrategy).toBe('glyph-spans');
+  });
+
+  it("migrates v2: old default stale policy 'mark' → 'rescan'; an explicit 'remove'/'off' is kept", () => {
+    const st = mem();
+    st.setItem('ppsspp_ocr_settings_v1', JSON.stringify({ schemaVersion: 2, stalePolicy: 'mark', hotkey: 'alt' }));
+    const s = loadSettings(st);
+    expect(s.schemaVersion).toBe(3);
+    expect(s.stalePolicy).toBe('rescan');
+    expect(s.hotkey).toBe('alt');
+    st.setItem('ppsspp_ocr_settings_v1', JSON.stringify({ schemaVersion: 2, stalePolicy: 'off' }));
+    expect(loadSettings(st).stalePolicy).toBe('off');
   });
 
   it('round-trips and ignores unknown schema versions', () => {

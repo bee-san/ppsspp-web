@@ -549,6 +549,40 @@ describe('OcrScanController (MeikiPop scheduling)', () => {
     expect(h.layouts.at(-1)!.stale).toBeUndefined();
   });
 
+  it("stale policy 'rescan' (default) re-infers after the image changes, with no pointer movement", async () => {
+    const h = harness({ stalePolicy: 'rescan' });
+    await ready(h);
+    expect(h.ocrCalls).toBe(1);
+    h.setPixels(2); // dialogue advanced / menu opened: the screen changed on its own
+    await h.sched.advance(600); // stale check fires → flagged + re-scan requested
+    const flagged = h.layouts.find((l) => l?.stale === true);
+    expect(flagged).toBeTruthy();
+    await h.sched.advance(1200);
+    expect(h.ocrCalls).toBe(2);
+    expect(h.ctrl.getDiagnostics().staleRescans).toBe(1);
+    expect(h.layouts.at(-1)).not.toBeNull();
+    expect(h.layouts.at(-1)!.stale).toBeUndefined();
+    // unchanged afterwards: the stale check keeps running but infers nothing more
+    await h.sched.advance(3000);
+    expect(h.ocrCalls).toBe(2);
+  });
+
+  it('emulator UI open (pause menu) hides the layout and blocks scans; closing it re-infers once', async () => {
+    const h = harness({ stalePolicy: 'rescan' });
+    await ready(h);
+    h.ctrl.setEmulatorUiOpen(true);
+    expect(h.layouts.at(-1)).toBeNull();
+    h.setPixels(5); // the dimmed game + menu
+    move(h, 20, 20);
+    await h.sched.advance(2000);
+    expect(h.ocrCalls).toBe(1); // nothing scanned while the menu is open
+    h.setPixels(1);
+    h.ctrl.setEmulatorUiOpen(false);
+    await h.sched.advance(1200);
+    expect(h.ocrCalls).toBe(2);
+    expect(h.layouts.at(-1)).not.toBeNull();
+  });
+
   it("stale policy 'remove' retires the targets; 'off' never captures for freshness", async () => {
     const hr = harness({ stalePolicy: 'remove' });
     await ready(hr);

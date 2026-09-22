@@ -79,7 +79,8 @@
 
       <label class="ocr-field">When the image changes under visible text
         <select [value]="s().stalePolicy" (change)="onSelect('stalePolicy', $event)" aria-label="Stale text policy">
-          <option value="mark">Keep text, mark as possibly outdated (default)</option>
+          <option value="rescan">Re-read the screen automatically (default)</option>
+          <option value="mark">Keep text, mark as possibly outdated</option>
           <option value="remove">Remove text until the next scan</option>
           <option value="off">Do not check</option>
         </select>
