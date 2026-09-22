@@ -554,9 +554,11 @@ describe('OcrScanController (MeikiPop scheduling)', () => {
     await ready(h);
     expect(h.ocrCalls).toBe(1);
     h.setPixels(2); // dialogue advanced / menu opened: the screen changed on its own
-    await h.sched.advance(600); // stale check fires → flagged + re-scan requested
+    await h.sched.advance(600); // 1st stale check: changed → flagged, waits for the picture to settle
     const flagged = h.layouts.find((l) => l?.stale === true);
     expect(flagged).toBeTruthy();
+    expect(h.ocrCalls).toBe(1);
+    await h.sched.advance(600); // 2nd check: same pixels as the 1st → settled → re-scan
     await h.sched.advance(1200);
     expect(h.ocrCalls).toBe(2);
     expect(h.ctrl.getDiagnostics().staleRescans).toBe(1);
@@ -565,6 +567,18 @@ describe('OcrScanController (MeikiPop scheduling)', () => {
     // unchanged afterwards: the stale check keeps running but infers nothing more
     await h.sched.advance(3000);
     expect(h.ocrCalls).toBe(2);
+  });
+
+  it("rescan waits for a typewriter effect to finish: changing pixels every check → no inference until they hold still", async () => {
+    const h = harness({ stalePolicy: 'rescan' });
+    await ready(h);
+    for (let i = 0; i < 8; i++) { h.setPixels(10 + i); await h.sched.advance(500); } // text typing out: a new glyph before every check
+    expect(h.ocrCalls).toBe(1);
+    expect(h.ctrl.getDiagnostics().staleSettling).toBeGreaterThanOrEqual(6);
+    await h.sched.advance(1000); // pixels held still across two checks → settled
+    await h.sched.advance(1200);
+    expect(h.ocrCalls).toBe(2);
+    expect(h.ctrl.getDiagnostics().staleRescans).toBe(1);
   });
 
   it('emulator UI open (pause menu) hides the layout and blocks scans; closing it re-infers once', async () => {
