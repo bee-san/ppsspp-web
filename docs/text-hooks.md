@@ -59,6 +59,29 @@ PPSSPPSDL.wasm (pthreads)  ──shared WebAssembly.Memory──▶  reading bri
   `{ "sentence", "time" }` or plain text) and feed those lines the same way — useful when
   running native PPSSPP alongside, or any tool that speaks that protocol.
 
+## Choosing a script (the Text hook tab)
+
+* **Library.** Scripts come from three places: bundled with the app (`agent-scripts/`), yours
+  (pasted, written in the tab, or loaded from `.js` files) and the community repo
+  (`github.com/0xDC00/scripts`, PSP entries listed through the GitHub API, cached a day, fetched
+  from raw.githubusercontent.com which serves CORS). User/community scripts persist in
+  `localStorage` (`ppsspp_agent_library_v1`); each remembers its `@name`, `@version`, author,
+  description and the disc IDs found in its header/file name (`[ULJM05054] …`,
+  `PSP_ULJM06302-3_…` → 06302 and 06303).
+* **Auto-selection by disc ID.** The game image is parsed for `PARAM.SFO` (in the PBP header,
+  or `PSP_GAME/PARAM.SFO` in an ISO9660 image — only the needed sectors are read) to get
+  `DISC_ID` and `TITLE`; the tab shows "Game: ULJM05054 · Title" and, with auto-select on,
+  picks the library script for that disc (the bundled test game is `JPTX00001`). Scripts that
+  match the running game are grouped first in the selector.
+* **setHook-only scripts.** Importing a community script that only uses `setHook` shows a
+  warning, because the browser cannot fire code breakpoints. **Find text in memory…** fixes
+  that: type (or take from the OCR layer) a few characters that are on screen, the tab
+  searches the user RAM for them as Shift-JIS/UTF-8/UTF-16 and lists every hit with a preview
+  of the string around it (string starts first); "Use as watch" writes a ready `setWatch`
+  script for this game with the right decoder and a watch size covering the string. Verified
+  end to end on the test game: the finder returns `0x088a1860 shift_jis string start` and the
+  generated script produces the next line on a page flip.
+
 ## What the text is used for
 
 1. **OCR layer correction** (default `replace`). After every recognition the controller's
