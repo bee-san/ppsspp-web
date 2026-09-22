@@ -219,10 +219,12 @@ body.browser-fullscreen #stageMini {
 body.browser-fullscreen canvas,
 canvas:fullscreen,
 canvas:-webkit-full-screen {
-  width: min(var(--viewport-w), calc(var(--app-h) * 16 / 9)) !important;
-  height: min(var(--app-h), calc(var(--viewport-w) * 9 / 16)) !important;
-  max-width: var(--viewport-w) !important;
-  max-height: var(--app-h) !important;
+  /* fill the stage (which may share the screen with the side panel) keeping 16:9 */
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  aspect-ratio: auto !important;
   border: 0 !important;
   border-radius: 0 !important;
   box-shadow: none !important;
@@ -796,10 +798,14 @@ body.panel-open aside { display: grid; }
   }
 
   body.panel-open .body-main { grid-template-columns: 1fr; }
+  /* With the drawer open, keep the game visible above it: canvas at the top of the stage, the
+     sheet takes what is left below a 16:9 canvas (but at least 40 % of the screen). */
+  body.panel-open .stage { align-items: flex-start; }
   body.panel-open aside {
     position: fixed;
     bottom: 0; left: 0; right: 0; z-index: 200;
-    height: min(calc(var(--app-h) * .72), calc(var(--app-h) - 72px));
+    height: max(calc(var(--app-h) * .4), calc(var(--app-h) - var(--h) - (var(--viewport-w) * 9 / 16) - 8px));
+    height: clamp(calc(var(--app-h) * .4), calc(var(--app-h) - var(--h) - (var(--viewport-w) * 9 / 16) - 8px), calc(var(--app-h) * .72));
     max-height: calc(var(--app-h) - env(safe-area-inset-top) - 12px);
     border-left: none;
     border-top: 1px solid var(--border2);
@@ -1588,6 +1594,8 @@ body.drive-connected .drive-sync-btn { display: inline-flex !important; }
 .ocr-settings { display: flex; flex-direction: column; gap: 8px; font-size: 12px; padding: 10px 12px 14px; box-sizing: border-box; }
 .ocr-row { display: flex; align-items: center; gap: 8px; }
 .ocr-row-main { justify-content: space-between; }
+.ocr-row-main > input[type=checkbox] { flex: 0 0 auto; margin: 3px 6px 0 0; align-self: flex-start; }
+.agent-settings .ocr-row-main { display: flex; align-items: flex-start; gap: 0; justify-content: flex-start; }
 .ocr-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .ocr-status { margin: 0; color: var(--muted, #999); }
 .ocr-status[data-phase="error"] { color: var(--danger, #ff5c5c); }
@@ -1818,3 +1826,35 @@ input.mining-text { text-align: left; justify-content: flex-start; padding: 0 8p
 .agent-line-text { flex: 1; word-break: break-all; }
 .agent-log { max-height: 160px; overflow: auto; white-space: pre-wrap; }
 .ocr-text-layer.ocr-hooked .ocr-text-target[data-ocr-source="hook"] { text-decoration-color: rgba(120, 255, 180, 0.6); }
+.agent-game { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+.agent-badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+.agent-badge.ok { color: var(--accent); border-color: var(--accent); }
+.agent-select { width: 100%; box-sizing: border-box; }
+.agent-selected { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.agent-desc { white-space: pre-wrap; }
+.agent-import { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.agent-search { width: 100%; box-sizing: border-box; }
+.agent-catalog { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.agent-catalog li { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'title btn' 'meta btn'; align-items: center; column-gap: 8px; font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.agent-cat-title { grid-area: title; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-catalog li > .ocr-muted { grid-area: meta; font-size: 11px; }
+.agent-catalog li .btn { grid-area: btn; }
+.agent-import .agent-feed-head .btn { margin-left: auto; }
+.agent-details summary { cursor: pointer; font-weight: 600; }
+.agent-details > label { margin-top: 6px; }
+
+/* ── Floating toolbar while the stage is fullscreen ─────────────── */
+#fsToolbar { display: none; position: absolute; top: 8px; right: 8px; z-index: 40; gap: 6px; padding: 4px; border-radius: 10px; background: rgba(8, 10, 14, .72); border: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(6px); opacity: .55; transition: opacity .2s; }
+#fsToolbar:hover, #fsToolbar:focus-within, body.fs-toolbar-visible #fsToolbar { opacity: 1; }
+#fsToolbar .btn { height: 34px; min-width: 34px; width: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+body.browser-fullscreen #fsToolbar { display: flex; }
+/* Idle: fade but stay tappable (a touch has no hover to reveal it first). */
+body.browser-fullscreen.fs-cursor-hidden #fsToolbar { opacity: .18; }
+body.browser-fullscreen.fs-cursor-hidden #fsToolbar:hover, body.browser-fullscreen.fs-cursor-hidden #fsToolbar:active { opacity: 1; }
+@media (pointer: coarse) { body.browser-fullscreen.fs-cursor-hidden #fsToolbar { opacity: .35; } }
+/* .body-main is the fullscreen element (stage + aside): size it to the screen */
+.body-main:fullscreen, .body-main:-webkit-full-screen { width: 100vw !important; height: 100vh !important; background: #000; }
+.body-main:fullscreen .stage, .body-main:-webkit-full-screen .stage { padding: 0 !important; background: #000 !important; display: flex !important; align-items: center !important; justify-content: center !important; min-height: 0; }
+body.browser-fullscreen.panel-open .body-main { grid-template-columns: minmax(0, 1fr) var(--panel-w); }
+body.browser-fullscreen.panel-open aside { top: 0 !important; height: 100% !important; max-height: 100% !important; }
+body.browser-fullscreen aside { border-top: none; }

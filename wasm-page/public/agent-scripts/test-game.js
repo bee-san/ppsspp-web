@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         [ppsspp-web test game] JP Text Alignment Test
+// @name         [JPTX00001] JP Text Alignment Test (ppsspp-web test game)
 // @version      0.1
 // @author       ppsspp-web
 // @description  PPSSPP (web) — text hook for wasm-page/test-game (homebrew). Reads the current

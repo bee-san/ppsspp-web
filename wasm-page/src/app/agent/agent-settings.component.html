@@ -11,60 +11,134 @@
     <p class="ocr-muted">This emulator runtime does not expose its memory (reading bridge v3 required).</p>
   }
 
-  <p class="ocr-muted">
-    Text hooks give the exact text and the moment a line appeared — like GameSentenceMiner with Agent or Textractor.
-    Scripts use the <a href="https://github.com/0xDC00/scripts" target="_blank" rel="noopener">Agent script format</a>;
-    in the browser <code>setWatch(address → handler)</code> replaces <code>setHook</code> (no JIT breakpoints here).
-  </p>
+  <div class="agent-game"><span class="ocr-muted">Game:</span> <strong>{{ gameLabel() }}</strong>
+    @if (matching().length) { <span class="agent-badge ok">{{ matching().length }} script{{ matching().length === 1 ? '' : 's' }} available</span> }
+    @else if (game().discId) { <span class="agent-badge">no script yet</span> }
+  </div>
 
-  <div class="ocr-field agent-script">
-    <span>Script @if (s().scriptName) {<em>— {{ s().scriptName }}</em>}</span>
-    @if (!editing()) {
+  <label class="ocr-field">Script
+    <select class="agent-select" (change)="onPickScript($event)" aria-label="Text hook script">
+      <option value="" [selected]="!s().selectedScriptId">— none —</option>
+      @for (g of groups(); track g.label) {
+        <optgroup [label]="g.label">
+          @for (sc of g.items; track sc.id) { <option [value]="sc.id" [selected]="sc.id === s().selectedScriptId">{{ sc.name }}</option> }
+        </optgroup>
+      }
+      <option value="__new">＋ New script…</option>
+    </select>
+  </label>
+  <label class="ocr-row"><span class="ocr-row-main"><input type="checkbox" [checked]="s().autoSelect" (change)="onCheckbox('autoSelect', $event)" /> Pick the script for the running game automatically (by disc ID)</span></label>
+
+  @if (selected(); as sc) {
+    <div class="agent-selected">
+      <div class="ocr-muted">{{ sc.origin === 'bundled' ? 'Bundled' : sc.origin === 'community' ? 'Community (0xDC00/scripts)' : 'Yours' }}@if (sc.meta['version']) { · v{{ sc.meta['version'] }}}@if (sc.meta['author']) { · {{ sc.meta['author'] }}}@if (sc.discIds.length) { · {{ sc.discIds.join(', ') }}}</div>
+      @if (sc.meta['description']) { <div class="ocr-muted agent-desc">{{ sc.meta['description'] }}</div> }
+      @if (selectedAnalysis(); as a) {
+        @if (a.usesSetHook && !a.usesSetWatch) {
+          <p class="ocr-status err">This script only uses <code>setHook</code> (code breakpoints), which the browser cannot fire. It needs a <code>setWatch</code> on the game's text buffer — edit it (the address is usually the string pointer the hook reads).</p>
+        }
+      }
       <div class="agent-script-actions">
-        <button class="btn" type="button" (click)="startEdit()">{{ s().script ? 'Edit' : 'Paste' }} script</button>
-        <label class="btn" tabindex="0">Load file… <input type="file" accept=".js,.txt" hidden (change)="loadFile($event)" /></label>
-        <button class="btn" type="button" (click)="loadExample()" [disabled]="loadingExample()">Load test-game example</button>
-        @if (s().script) { <button class="btn" type="button" (click)="clearScript()">Remove</button> }
+        <button class="btn" type="button" (click)="startEdit()">{{ sc.origin === 'bundled' ? 'View / copy' : 'Edit' }}</button>
+        @if (sc.origin !== 'bundled') { <button class="btn" type="button" (click)="removeSelected()">Remove</button> }
+        @if (sc.origin === 'bundled') { <button class="btn" type="button" (click)="duplicateSelected()">Duplicate as mine</button> }
       </div>
-    } @else {
-      <textarea class="agent-editor" rows="12" spellcheck="false" [value]="draft()" (input)="onDraft($event)" aria-label="Agent script source"></textarea>
+    </div>
+  }
+
+  <div class="agent-script-actions">
+    <button class="btn" type="button" (click)="openImport()">Import from the Agent script repo…</button>
+    <label class="btn" tabindex="0">Load .js file(s)… <input type="file" accept=".js,.txt" multiple hidden (change)="loadFile($event)" /></label>
+    <button class="btn" type="button" (click)="openFinder()" [disabled]="diag().base < 0" [title]="diag().base < 0 ? 'Start a game first' : 'Search the game\'s memory for text that is on screen now'">Find text in memory…</button>
+    <button class="btn" type="button" (click)="startNew()">Write one</button>
+  </div>
+
+  @if (showFinder()) {
+    <div class="agent-import">
+      <div class="agent-feed-head"><strong>Find the dialogue in memory</strong> <button class="btn" type="button" (click)="showFinder.set(false)">Close</button></div>
+      <p class="ocr-muted">Type (or take from the OCR layer) a few characters that are on screen right now; every place the game keeps them is listed. Pick the one that changes when the dialogue advances — that becomes a <code>setWatch</code> script for this game.</p>
+      <div class="agent-script-actions">
+        <input class="btn agent-search" type="text" [value]="finderText()" (input)="onFinderText($event)" (keydown.enter)="runFinder()" placeholder="Text on screen, e.g. ここは静かな村だ" aria-label="Text to find" />
+        <button class="btn" type="button" (click)="prefillFromScreen()">From OCR layer</button>
+        <button class="btn primary" type="button" (click)="runFinder()" [disabled]="finderBusy()">{{ finderBusy() ? 'Searching…' : 'Search' }}</button>
+      </div>
+      @if (finderHits(); as hits) {
+        @if (hits.length === 0) { <p class="ocr-muted">Not found in user RAM as Shift-JIS, UTF-8 or UTF-16. The game may store text in another encoding or decompress it on the fly.</p> }
+        @else {
+          <ul class="agent-catalog">
+            @for (h of hits; track h.encoding + h.address) {
+              <li><span class="agent-cat-title"><code>{{ hex(h.address) }}</code> {{ h.encoding }}@if (h.atStringStart) { <span class="agent-badge ok">string start</span> }</span>
+                <span class="ocr-muted">{{ h.preview }}</span>
+                <button class="btn" type="button" (click)="useHit(h)">Use as watch</button></li>
+            }
+          </ul>
+        }
+      }
+    </div>
+  }
+
+  @if (showImport()) {
+    <div class="agent-import">
+      <div class="agent-feed-head"><strong>Community scripts</strong> <span class="ocr-muted">github.com/0xDC00/scripts (PSP)</span> <button class="btn" type="button" (click)="showImport.set(false)">Close</button></div>
+      <input class="btn agent-search" type="search" [value]="query()" (input)="onQuery($event)" placeholder="Search by title or disc ID (e.g. ULJM05054)" aria-label="Search community scripts" />
+      @if (agent.catalogState() === 'loading') { <p class="ocr-muted">Loading catalog…</p> }
+      @else if (agent.catalogState() === 'error') { <p class="ocr-status err">Catalog unavailable: {{ agent.catalogError() }} <button class="btn" type="button" (click)="agent.loadCatalog(true)">Retry</button></p> }
+      @else if (results().length === 0) { <p class="ocr-muted">No PSP script matches. You can still paste a URL below.</p> }
+      @else {
+        <ul class="agent-catalog">
+          @for (e of results(); track e.url) {
+            <li><span class="agent-cat-title">{{ e.title }}</span> <span class="ocr-muted">{{ e.discIds.join(', ') }} · {{ fmtSize(e.size) }}</span>
+              <button class="btn" type="button" (click)="importEntry(e)" [disabled]="agent.importing() === e.url">{{ isImported(e) ? 'Re-import' : 'Import' }}</button></li>
+          }
+        </ul>
+      }
+      <input class="btn agent-search" type="url" placeholder="…or paste a raw script URL and press Enter" (keydown.enter)="importUrl($event)" aria-label="Script URL" />
+      <p class="ocr-muted">Community scripts were written for desktop Agent (<code>setHook</code> on JIT addresses). In the browser they run, but only <code>setWatch</code> on a text buffer produces lines — see the warning after import and <a href="#" (click)="$event.preventDefault(); openKeys()">Keys &amp; shortcuts</a> → docs.</p>
+    </div>
+  }
+
+  @if (editing()) {
+    <div class="agent-editor-wrap">
+      <textarea class="agent-editor" rows="14" spellcheck="false" [value]="draft()" (input)="onDraft($event)" aria-label="Agent script source"></textarea>
       <div class="agent-script-actions">
         <button class="btn primary" type="button" (click)="saveEdit()">Save &amp; run</button>
         <button class="btn" type="button" (click)="cancelEdit()">Cancel</button>
       </div>
-    }
-  </div>
+    </div>
+  }
 
-  <label class="ocr-field">Use hooked text in the OCR layer
-    <select [value]="s().ocrMode" (change)="onSelect('ocrMode', $event)" aria-label="OCR text mode">
-      <option value="replace">Replace recognized text with the hooked line (default)</option>
-      <option value="supplement">Only where OCR read something different</option>
-      <option value="off">Don't touch the OCR layer</option>
-    </select>
-  </label>
-  <label class="ocr-field">Match threshold <span class="ocr-muted">({{ s().matchThreshold }})</span>
-    <input type="range" min="0.3" max="0.95" step="0.05" [value]="s().matchThreshold" (input)="onNumber('matchThreshold', $event)" aria-label="Match threshold" />
-  </label>
-
-  <label class="ocr-row">
-    <span class="ocr-row-main">
-      <input type="checkbox" [checked]="s().clipFromLine" (change)="onCheckbox('clipFromLine', $event)" />
-      Mining: start clips where the current line appeared (pre-roll <input class="btn agent-num" type="number" min="0" max="10000" step="100" [value]="s().clipPreRollMs" (change)="onNumber('clipPreRollMs', $event)" aria-label="Pre-roll ms" /> ms)
-    </span>
-  </label>
-  <label class="ocr-field">Mining: write the line into this Anki field (empty = don't)
-    <input class="btn" type="text" [value]="s().sentenceField" (change)="onText('sentenceField', $event)" placeholder="Sentence" aria-label="Sentence field" />
-  </label>
-  <label class="ocr-row">
-    <span class="ocr-row-main">
-      <input type="checkbox" [checked]="s().copyToClipboard" (change)="onCheckbox('copyToClipboard', $event)" />
-      Copy every line to the clipboard (texthooker → clipboard tools, GSM clipboard mode)
-    </span>
-  </label>
-  <label class="ocr-field">External text hooker WebSocket (optional)
-    <input class="btn" type="text" [value]="s().websocketUrl" (change)="onText('websocketUrl', $event)" placeholder="ws://localhost:9001 (Agent) · ws://localhost:6677 (Textractor)" aria-label="WebSocket URL" />
-    <span class="ocr-muted">Connection: {{ diag().websocket }}</span>
-  </label>
+  <details class="agent-details">
+    <summary>How the text is used</summary>
+    <label class="ocr-field">In the OCR layer
+      <select [value]="s().ocrMode" (change)="onSelect('ocrMode', $event)" aria-label="OCR text mode">
+        <option value="replace">Replace recognized text with the hooked line (default)</option>
+        <option value="supplement">Only where OCR read something different</option>
+        <option value="off">Don't touch the OCR layer</option>
+      </select>
+    </label>
+    <label class="ocr-field">Match threshold <span class="ocr-muted">({{ s().matchThreshold }})</span>
+      <input type="range" min="0.3" max="0.95" step="0.05" [value]="s().matchThreshold" (input)="onNumber('matchThreshold', $event)" aria-label="Match threshold" />
+    </label>
+    <label class="ocr-row">
+      <span class="ocr-row-main">
+        <input type="checkbox" [checked]="s().clipFromLine" (change)="onCheckbox('clipFromLine', $event)" />
+        Mining: start clips where the current line appeared (pre-roll <input class="btn agent-num" type="number" min="0" max="10000" step="100" [value]="s().clipPreRollMs" (change)="onNumber('clipPreRollMs', $event)" aria-label="Pre-roll ms" /> ms)
+      </span>
+    </label>
+    <label class="ocr-field">Mining: write the line into this Anki field (empty = don't)
+      <input class="btn" type="text" [value]="s().sentenceField" (change)="onText('sentenceField', $event)" placeholder="Sentence" aria-label="Sentence field" />
+    </label>
+    <label class="ocr-row">
+      <span class="ocr-row-main">
+        <input type="checkbox" [checked]="s().copyToClipboard" (change)="onCheckbox('copyToClipboard', $event)" />
+        Copy every line to the clipboard (texthooker → clipboard tools, GSM clipboard mode)
+      </span>
+    </label>
+    <label class="ocr-field">External text hooker WebSocket (optional)
+      <input class="btn" type="text" [value]="s().websocketUrl" (change)="onText('websocketUrl', $event)" placeholder="ws://localhost:9001 (Agent) · ws://localhost:6677 (Textractor)" aria-label="WebSocket URL" />
+      <span class="ocr-muted">Connection: {{ diag().websocket }}</span>
+    </label>
+  </details>
 
   <div class="agent-feed">
     <div class="agent-feed-head"><strong>Text feed</strong> <span class="ocr-muted">{{ diag().lines }} line(s) · arena {{ baseHex() }} · {{ diag().watches }} watch(es)</span>

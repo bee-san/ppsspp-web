@@ -13,8 +13,11 @@
  * clipboard (the classic texthooker → clipboard → GSM / clipboard inserter path).
  */
 import { computed, Injectable, signal } from '@angular/core';
-import { DEFAULT_AGENT_SETTINGS, loadAgentSettings, saveAgentSettings, type AgentDiagnostics, type AgentSettings, type HookedLine } from './agent-types';
+import { DEFAULT_AGENT_SETTINGS, loadAgentSettings, saveAgentSettings, type AgentDiagnostics, type AgentSettings, type GameIdentity, type HookedLine } from './agent-types';
 import { parseUserScriptHeader } from './agent-runtime-api';
+import { readGameMeta } from './game-meta';
+import { findText, suggestWatchSize, watchScriptFor, type TextHit } from './text-finder';
+import { analyzeScript, BUNDLED_SCRIPTS, CATALOG_API, loadCatalogCache, loadLibrary, parseCatalog, saveCatalogCache, saveLibrary, scriptFromSource, scriptsForDisc, searchCatalog, type CatalogEntry, type LibraryScript } from './script-library';
 import type { AgentWorkerRequest, AgentWorkerResponse } from './agent-sandbox.worker';
 import type { BridgeState, LifecycleEvent } from '../ocr/ocr-types';
 
@@ -23,6 +26,7 @@ export interface RawReadingBridgeV3 {
   version: number;
   getState(): BridgeState;
   subscribeLifecycle(cb: (ev: LifecycleEvent) => void): () => void;
+  getGameFile?(): Blob | null;
   guestMemory: {
     available(): boolean;
     base(force?: boolean): number;
@@ -47,6 +51,17 @@ export class AgentSessionService {
   readonly log = signal<readonly AgentLogEntry[]>([]);
   /** Bridge v3 present (guest memory reachable). */
   readonly supported = signal<boolean | null>(null);
+  /** Script library: bundled + user + community. */
+  readonly library = signal<readonly LibraryScript[]>(loadLibrary(localStorage));
+  readonly selected = computed(() => this.library().find((s) => s.id === this.settings().selectedScriptId) ?? null);
+  /** Running game identity (file name from the bridge; disc ID/title parsed from the image). */
+  readonly game = signal<GameIdentity>({ fileName: null, discId: null, title: null });
+  /** Library scripts matching the running game's disc ID. */
+  readonly matching = computed(() => scriptsForDisc(this.library(), this.game().discId));
+  readonly catalog = signal<CatalogEntry[] | null>(null);
+  readonly catalogState = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  readonly catalogError = signal('');
+  readonly importing = signal<string | null>(null);
 
   private bridge: RawReadingBridgeV3 | null = null;
   private worker: Worker | null = null;
@@ -83,8 +98,180 @@ export class AgentSessionService {
     this.supported.set(true);
     this.bridge = raw;
     this.gameRunning = raw.getState().phase === 'running';
+    this.game.set({ ...this.game(), fileName: raw.getState().gameId });
     this.unsubscribe = raw.subscribeLifecycle((ev) => this.onLifecycle(ev));
+    void this.loadBundled();
+    const f = raw.getGameFile?.();
+    if (f) void this.identifyGame(f);
     this.sync();
+  }
+
+  /** Bundled scripts are fetched from the app's own assets and merged into the library. */
+  private async loadBundled(): Promise<void> {
+    const added: LibraryScript[] = [];
+    for (const b of BUNDLED_SCRIPTS) {
+      try {
+        const res = await fetch(b.path, { cache: 'no-store' });
+        if (!res.ok) continue;
+        const src = await res.text();
+        const sc = scriptFromSource(src, 'bundled', { id: b.id, fileName: b.path });
+        added.push({ ...sc, name: sc.name || b.name, discIds: Array.from(new Set([...sc.discIds, ...b.discIds])) });
+      } catch {
+        /* offline: skip */
+      }
+    }
+    if (added.length) {
+      this.library.set([...added, ...this.library().filter((s) => s.origin !== 'bundled')]);
+      this.autoSelectForGame();
+    }
+  }
+
+  /** Parse PARAM.SFO out of the game image for the disc ID and title. */
+  private async identifyGame(file: Blob): Promise<void> {
+    try {
+      const meta = await readGameMeta(file as unknown as Parameters<typeof readGameMeta>[0]);
+      this.game.set({ ...this.game(), discId: meta.discId, title: meta.title });
+      this.pushLog('info', `game: ${meta.discId ?? '(no disc id)'} ${meta.title ?? ''} (${meta.source})`);
+    } catch (e) {
+      this.pushLog('warn', 'could not read PARAM.SFO: ' + String(e));
+    }
+    this.autoSelectForGame();
+  }
+
+  /** With auto-select on, pick the library script for the running disc when one exists. */
+  private autoSelectForGame(): void {
+    const s = this.settings();
+    if (!s.autoSelect) return;
+    const m = this.matching();
+    if (!m.length) return;
+    if (m.some((x) => x.id === s.selectedScriptId)) return;
+    this.selectScript(m[0].id, { reason: 'auto' });
+  }
+
+  // ─────────────────────────── library ───────────────────────────
+
+  selectScript(id: string, opts: { reason?: 'auto' | 'user' } = {}): void {
+    const sc = this.library().find((x) => x.id === id) ?? null;
+    this.update({ selectedScriptId: sc ? sc.id : '', script: sc ? sc.source : '', scriptName: sc ? sc.name : '' });
+    if (sc && opts.reason === 'auto') this.pushLog('info', `auto-selected "${sc.name}" for ${this.game().discId}`);
+  }
+
+  /** Add (or replace by identical id) a script from source text; returns it. */
+  addScript(source: string, origin: 'user' | 'community' = 'user', opts: { url?: string; fileName?: string; select?: boolean } = {}): LibraryScript {
+    const sc = scriptFromSource(source, origin, { url: opts.url, fileName: opts.fileName });
+    const rest = this.library().filter((x) => x.id !== sc.id && !(opts.url && x.url === opts.url));
+    const lib = [...rest, sc];
+    this.library.set(lib);
+    saveLibrary(localStorage, lib);
+    if (opts.select !== false) this.selectScript(sc.id, { reason: 'user' });
+    return sc;
+  }
+
+  /** Replace the source of an existing user/community script (editing). */
+  updateScriptSource(id: string, source: string): void {
+    const cur = this.library().find((x) => x.id === id);
+    if (!cur || cur.origin === 'bundled') {
+      this.addScript(source, 'user');
+      return;
+    }
+    const next = { ...scriptFromSource(source, cur.origin, { id: cur.id, url: cur.url }), addedAt: cur.addedAt };
+    const lib = this.library().map((x) => (x.id === id ? next : x));
+    this.library.set(lib);
+    saveLibrary(localStorage, lib);
+    if (this.settings().selectedScriptId === id) this.update({ script: next.source, scriptName: next.name });
+  }
+
+  removeScript(id: string): void {
+    const cur = this.library().find((x) => x.id === id);
+    if (!cur || cur.origin === 'bundled') return;
+    const lib = this.library().filter((x) => x.id !== id);
+    this.library.set(lib);
+    saveLibrary(localStorage, lib);
+    if (this.settings().selectedScriptId === id) this.update({ selectedScriptId: '', script: '', scriptName: '' });
+  }
+
+  analyze(source: string) {
+    return analyzeScript(source);
+  }
+
+  /**
+   * Search the emulated user RAM (0x08800000–0x0a000000, 24 MiB, read in 1 MiB windows) for
+   * `text` in Shift-JIS / UTF-8 / UTF-16LE. Yields to the event loop between windows.
+   */
+  async findTextInMemory(text: string): Promise<TextHit[]> {
+    const b = this.bridge;
+    if (!b || b.guestMemory.base() < 0) return [];
+    const { user, end } = b.guestMemory.layout;
+    const WIN = 1 << 20;
+    const hits: TextHit[] = [];
+    for (let a = user; a < end && hits.length < 64; a += WIN) {
+      const bytes = b.guestMemory.read(a, Math.min(WIN, end - a) + 512); // overlap so matches on a window edge are found
+      if (!bytes) break;
+      hits.push(...findText(text, [{ start: a, bytes }], { max: 64 - hits.length }));
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    // de-duplicate overlap matches
+    const seen = new Set<string>();
+    return hits.filter((h) => { const k = h.encoding + h.address; if (seen.has(k)) return false; seen.add(k); return true; });
+  }
+
+  /** Build and add a user script watching the found address; selects it. */
+  createWatchScript(hit: TextHit): LibraryScript {
+    const b = this.bridge!;
+    const probe = b.guestMemory.read(hit.address, 1024) ?? new Uint8Array(0);
+    const size = suggestWatchSize(probe, hit.encoding);
+    const src = watchScriptFor(hit.address, hit.encoding, size, this.game());
+    const sc = this.addScript(src, 'user', { select: true });
+    if (!this.settings().enabled) this.update({ enabled: true });
+    return sc;
+  }
+
+  /** Load the community catalog (GitHub listing of 0xDC00/scripts, cached for a day). */
+  async loadCatalog(force = false): Promise<void> {
+    if (!force) {
+      const cached = loadCatalogCache(localStorage);
+      if (cached) {
+        this.catalog.set(cached);
+        this.catalogState.set('ready');
+        return;
+      }
+    }
+    this.catalogState.set('loading');
+    this.catalogError.set('');
+    try {
+      const res = await fetch(CATALOG_API, { headers: { Accept: 'application/vnd.github+json' } });
+      if (!res.ok) throw new Error(`GitHub API ${res.status}${res.status === 403 ? ' (rate limit — try again later)' : ''}`);
+      const entries = parseCatalog(await res.json());
+      saveCatalogCache(localStorage, entries);
+      this.catalog.set(entries);
+      this.catalogState.set('ready');
+    } catch (e) {
+      this.catalogError.set((e as Error).message ?? String(e));
+      this.catalogState.set('error');
+    }
+  }
+
+  searchCatalog(query: string): CatalogEntry[] {
+    return searchCatalog(this.catalog() ?? [], query);
+  }
+
+  /** Import a community script by URL (raw.githubusercontent serves CORS). */
+  async importFromUrl(url: string, fileName?: string): Promise<LibraryScript | null> {
+    this.importing.set(url);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const src = await res.text();
+      const sc = this.addScript(src, 'community', { url, fileName: fileName ?? url.split('/').pop() });
+      const a = analyzeScript(src);
+      if (a.usesSetHook && !a.usesSetWatch) this.pushLog('warn', `"${sc.name}" uses setHook (code breakpoints) only — the browser runtime cannot fire those; it needs a setWatch on the text buffer`);
+      return sc;
+    } catch (e) {
+      this.pushLog('error', `import failed: ${(e as Error).message ?? e}`);
+      return null;
+    } finally {
+      this.importing.set(null);
+    }
   }
 
   /** Subscribe to new lines (returns unsubscribe). */
@@ -95,7 +282,7 @@ export class AgentSessionService {
 
   update(patch: Partial<AgentSettings>): void {
     const next = { ...this.settings(), ...patch, schemaVersion: 1 as const };
-    if (patch.script !== undefined) {
+    if (patch.script !== undefined && patch.scriptName === undefined) {
       const h = parseUserScriptHeader(patch.script);
       next.scriptName = h['name'] ?? (patch.script.trim() ? 'script' : '');
     }
@@ -121,8 +308,6 @@ export class AgentSessionService {
     this.pushLine(text, performance.now(), source, detail);
   }
 
-  /** Reset the example script for the bundled test game. */
-  static readonly EXAMPLE_SCRIPT_URL = 'test-game/agent-script.js';
 
   // ─────────────────────────── lifecycle ───────────────────────────
 
@@ -132,8 +317,16 @@ export class AgentSessionService {
       if (!this.gameRunning) this.stopWorker();
       this.sync();
     } else if (ev.type === 'game-changed') {
+      // The runtime announces the mounted path after the file (game-file) — keep the identity
+      // parsed from that file; only a different file resets it.
+      const f = this.bridge?.getGameFile?.() ?? null;
+      const sameFile = !!f && !!ev.gameId && (f as File).name?.replace(/[^a-zA-Z0-9._-]/g, '_') === ev.gameId;
+      this.game.set(sameFile ? { ...this.game(), fileName: ev.gameId } : { fileName: ev.gameId, discId: null, title: null });
+      if (!sameFile && f) void this.identifyGame(f);
       // new game → new memory layout; re-locate and restart the script
       this.restartWorker();
+    } else if (ev.type === 'game-file') {
+      if (ev.file) void this.identifyGame(ev.file);
     }
   }
 
@@ -150,7 +343,7 @@ export class AgentSessionService {
       return;
     }
     if (!s.script.trim()) {
-      this.patchDiag({ phase: 'waiting', message: 'No script loaded — paste an Agent script or load the test-game example' });
+      this.patchDiag({ phase: 'waiting', message: this.matching().length ? 'Select a script for this game' : `No script for this game${this.game().discId ? ` (${this.game().discId})` : ''} — pick one from the library or import it` });
       return;
     }
     if (!this.worker) this.startWorker();
