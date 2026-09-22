@@ -154,7 +154,9 @@ export class OcrSessionService {
       this.listeners.push(() => el.removeEventListener(type as string, fn as EventListener, opts));
     };
     on(stage, 'pointermove', (e: PointerEvent) => this.onPointerMove(e), { passive: true });
-    on(stage, 'pointerdown', () => {
+    on(stage, 'pointerdown', (e: PointerEvent) => {
+      // A tap has no hover: use it as the pointer sample (hit-test / popup / manual-mode scan).
+      if (e.pointerType === 'touch') this.onPointerMove(e);
       if (!this.emulatorMenuOpen) return;
       // Any click inside PPSSPP's pause menu leaves the pause screen (Continue, Settings,
       // Exit to menu…); give the emulator a moment to redraw, then resume recognition.
