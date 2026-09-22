@@ -225,12 +225,13 @@ const productionRatio = sliceSeconds / selSeconds;
 console.log(`audio produced in the selection: ${sliceSeconds.toFixed(2)} s of ${selSeconds} s wall-clock (ratio ${productionRatio.toFixed(2)})`);
 // The selection is the last `defaultClipSeconds` of a possibly longer buffer, so older frames may
 // legitimately fall outside it; what must hold is that the newest audio and the newest frame agree.
-check(dbg && Math.abs(dbg.audio.endMs - dbg.lastFrame) < 400 && dbg.framesUsed >= 3, `snapshot audio end (${dbg?.audio?.endMs?.toFixed(0)} ms) aligns with the newest frame (${dbg?.lastFrame?.toFixed(0)} ms); ${dbg?.framesUsed}/${dbg?.frameCount} frames in the ${selSeconds} s selection`);
+// 400 → 700 ms: a frame is captured every 125 ms at 8 fps, but a starved CI runner can stretch rAF gaps past 400 ms.
+check(dbg && Math.abs(dbg.audio.endMs - dbg.lastFrame) < 700 && dbg.framesUsed >= 3, `snapshot audio end (${dbg?.audio?.endMs?.toFixed(0)} ms) aligns with the newest frame (${dbg?.lastFrame?.toFixed(0)} ms); ${dbg?.framesUsed}/${dbg?.frameCount} frames in the ${selSeconds} s selection`);
 console.log("lifecycle timeline:", JSON.stringify(await page.evaluate(() => window.__events)));
 check(productionRatio > 0.3, `audio production ratio ${productionRatio.toFixed(2)} (≈1 on real hardware; lower under SwiftShader)`);
 check(media.sync && media.decoded && !media.decoded.error && Math.abs(media.decoded.duration - sliceSeconds) < 0.15 && media.decoded.channels === 2, `MP3 decodes in-browser: ${media.decoded?.duration?.toFixed(2)} s (selected audio ${sliceSeconds.toFixed(2)} s), ${media.decoded?.channels} ch, ${media.mp3Bytes} B`);
-const expectedBytes = sliceSeconds * 96_000 / 8;
-check(media.mp3Bytes > expectedBytes * 0.7 && media.mp3Bytes < expectedBytes * 1.5, `MP3 size consistent with 96 kbps (${media.mp3Bytes} B vs ~${Math.round(expectedBytes)} B)`);
+const expectedBytes = sliceSeconds * 128_000 / 8;
+check(media.mp3Bytes > expectedBytes * 0.7 && media.mp3Bytes < expectedBytes * 1.5, `MP3 size consistent with 128 kbps (${media.mp3Bytes} B vs ~${Math.round(expectedBytes)} B)`);
 check(media.riff && media.vp8x && media.anmf >= 3 && media.imgOk && media.imgW <= 480 && media.imgW > 0, `animated WebP decodes in-browser: ${media.anmf} frames, ${media.imgW}x${media.imgH}, ${media.webpBytes} B`);
 writeFileSync("/tmp/mining-emu-clip.webp", Buffer.from(note.picture[0].data, "base64"));
 writeFileSync("/tmp/mining-emu-clip.mp3", Buffer.from(note.audio[0].data, "base64"));

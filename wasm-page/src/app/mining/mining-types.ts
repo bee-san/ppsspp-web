@@ -45,7 +45,12 @@ export const MINING_LIMITS = Object.freeze({
   imageFps: { min: 4, max: 15 },
   imageMaxWidth: { min: 240, max: 960 },
   imageQuality: { min: 0.5, max: 0.95 },
-  audioBitrateKbps: [64, 96, 128] as readonly number[],
+  /**
+   * Stereo MP3 bitrates the bundled encoder (@breezystack/lamejs) gets right. Below 128 kbps its
+   * stereo output at 44.1/48 kHz decodes to ~0.1 s of audio followed by silence (verified with a
+   * test tone in Chromium: 44.1 kHz ≤ 96 kbps and 48 kHz 80–112 kbps are broken, ≥ 128 is fine).
+   */
+  audioBitrateKbps: [128, 160, 192] as readonly number[],
 });
 
 export const DEFAULT_MINING_SETTINGS: Readonly<MiningSettings> = Object.freeze({
@@ -58,7 +63,7 @@ export const DEFAULT_MINING_SETTINGS: Readonly<MiningSettings> = Object.freeze({
   imageFps: 8,
   imageMaxWidth: 480,
   imageQuality: 0.8,
-  audioBitrateKbps: 96,
+  audioBitrateKbps: 128,
   ankiUrl: 'http://127.0.0.1:8765',
   audioField: 'SentenceAudio',
   pictureField: 'Picture',

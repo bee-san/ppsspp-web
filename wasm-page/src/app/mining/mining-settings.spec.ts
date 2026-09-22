@@ -28,7 +28,7 @@ describe('mining settings store', () => {
     expect(DEFAULT_MINING_SETTINGS.imageFps).toBe(8);
     expect(DEFAULT_MINING_SETTINGS.imageMaxWidth).toBe(480);
     expect(DEFAULT_MINING_SETTINGS.imageQuality).toBe(0.8);
-    expect(DEFAULT_MINING_SETTINGS.audioBitrateKbps).toBe(96);
+    expect(DEFAULT_MINING_SETTINGS.audioBitrateKbps).toBe(128);
     expect(DEFAULT_MINING_SETTINGS.ankiUrl).toBe('http://127.0.0.1:8765');
     expect(DEFAULT_MINING_SETTINGS.audioField).toBe('SentenceAudio');
     expect(DEFAULT_MINING_SETTINGS.pictureField).toBe('Picture');
@@ -65,7 +65,7 @@ describe('mining settings store', () => {
     expect(s.imageFps).toBe(4);
     expect(s.imageMaxWidth).toBe(960);
     expect(s.imageQuality).toBe(0.95);
-    expect(s.audioBitrateKbps).toBe(96);
+    expect(s.audioBitrateKbps).toBe(128);
 
     const small = sanitizeMiningSettings({ ...DEFAULT_MINING_SETTINGS, bufferSeconds: 5, defaultClipSeconds: NaN });
     expect(small.bufferSeconds).toBe(5);
@@ -120,5 +120,12 @@ describe('mining settings store', () => {
     saveMiningSettings(st, DEFAULT_MINING_SETTINGS);
     resetMiningSettings(st);
     expect([...st.map.keys()]).toEqual(['ppsspp_ocr_settings_v1']);
+  });
+
+  it('old stored bitrates the encoder cannot handle in stereo (64/96 kbps) fall back to 128', () => {
+    // Regression: @breezystack/lamejs stereo output below 128 kbps decodes to ~0.1 s then silence.
+    expect(sanitizeMiningSettings({ ...DEFAULT_MINING_SETTINGS, audioBitrateKbps: 96 }).audioBitrateKbps).toBe(128);
+    expect(sanitizeMiningSettings({ ...DEFAULT_MINING_SETTINGS, audioBitrateKbps: 64 }).audioBitrateKbps).toBe(128);
+    expect(sanitizeMiningSettings({ ...DEFAULT_MINING_SETTINGS, audioBitrateKbps: 160 }).audioBitrateKbps).toBe(160);
   });
 });
