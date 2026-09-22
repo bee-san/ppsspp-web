@@ -149,6 +149,8 @@ export interface BridgeViewport {
 export type LifecycleEvent =
   | { type: 'phase'; phase: RuntimePhase }
   | { type: 'game-changed'; gameId: string | null }
+  /** v3: the game image was (re)selected — a File/Blob for metadata parsing (PARAM.SFO). */
+  | { type: 'game-file'; file: Blob | null; name: string | null }
   | { type: 'scene-epoch'; sceneEpoch: number; reason: string }
   | { type: 'geometry'; geometryVersion: number }
   | { type: 'fullscreen'; active: boolean }

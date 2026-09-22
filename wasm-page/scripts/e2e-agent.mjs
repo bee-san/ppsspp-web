@@ -84,10 +84,15 @@ check(!(await page.evaluate(() => window.PpssppReadingBridge.guestMemory.availab
 // Open the Text hook tab and load the example script (enables the hook).
 await page.evaluate(() => { document.body.classList.add("panel-open"); const sel = document.getElementById("panelTabSelect"); sel.value = "hook"; sel.dispatchEvent(new Event("change", { bubbles: true })); });
 await page.waitForSelector("#tabHook.active", { timeout: 5000 });
-await page.click("app-agent-settings button:has-text('Load test-game example')");
-await page.waitForFunction(() => /JP Text Alignment Test/.test(document.querySelector("app-agent-settings .agent-script")?.textContent ?? ""), null, { timeout: 10_000, ...POLL });
-check(true, "example script loaded from agent-scripts/test-game.js (name parsed from the userscript header)");
+// Enable the hook with no script chosen: the library must offer the bundled script and
+// auto-select it once the game (disc ID JPTX00001) is identified from its PARAM.SFO.
+await page.click("app-agent-settings input[aria-label='Enable text hook']");
+await page.waitForFunction(() => document.querySelectorAll("app-agent-settings select.agent-select option").length >= 3, null, { timeout: 10_000, ...POLL });
+const options = await page.evaluate(() => Array.from(document.querySelectorAll("app-agent-settings select.agent-select option")).map((o) => o.textContent.trim()));
+check(options.some((o) => /JPTX00001.*JP Text Alignment Test/.test(o)), `library lists the bundled script: ${JSON.stringify(options)}`);
+await page.waitForTimeout(300);
 check(/Waiting for the game/.test(await page.locator("app-agent-settings .ocr-status").innerText()), "hook waits for the game");
+check(/No game running/.test(await page.locator("app-agent-settings .agent-game").innerText()), "no game identified yet");
 
 // Also enable mining (buffering) so the timing/sentence integration can be checked later.
 await page.evaluate(() => { const sel = document.getElementById("panelTabSelect"); sel.value = "mining"; sel.dispatchEvent(new Event("change", { bubbles: true })); });
@@ -98,6 +103,11 @@ await page.setInputFiles("#gameFile", resolve("test-game/EBOOT.PBP"));
 await page.click("#startBtn");
 await page.waitForFunction(() => window.PpssppReadingBridge.getState().phase === "running", null, { timeout: 240_000 });
 check(await page.evaluate(() => window.PpssppReadingBridge.guestMemory.available()), "emulator WebAssembly.Memory (shared) captured once the emulator runs");
+await page.waitForFunction(() => /JPTX00001/.test(document.querySelector("app-agent-settings .agent-game")?.textContent ?? ""), null, { timeout: 30_000, ...POLL });
+check(/JPTX00001 · JP Text Alignment Test/.test(await page.locator("app-agent-settings .agent-game").innerText()), `game identified from PARAM.SFO: "${(await page.locator("app-agent-settings .agent-game").innerText()).replace(/\s+/g, " ")}"`);
+await page.waitForFunction(() => document.querySelector("app-agent-settings select.agent-select")?.value?.startsWith("bundled:"), null, { timeout: 15_000, ...POLL }).catch(() => {});
+const selInfo = await page.evaluate(() => ({ select: document.querySelector("app-agent-settings select.agent-select").value, setting: JSON.parse(localStorage.getItem("ppsspp_agent_settings_v1")).selectedScriptId, selectedBox: document.querySelector("app-agent-settings .agent-selected")?.textContent?.trim().slice(0, 60) }));
+check(selInfo.setting === "bundled:test-game" && selInfo.select === "bundled:test-game", `bundled script auto-selected for the running disc ID ${JSON.stringify(selInfo)}`);
 await page.waitForFunction(() => /Script running/.test(document.querySelector("app-agent-settings .ocr-status")?.textContent ?? ""), null, { timeout: 60_000, ...POLL });
 const status = await page.locator("app-agent-settings .ocr-status").innerText();
 check(/1 watch/.test(status) && /1 PC hook.*inactive/.test(status), `script running: "${status}"`);

@@ -1588,6 +1588,8 @@ body.drive-connected .drive-sync-btn { display: inline-flex !important; }
 .ocr-settings { display: flex; flex-direction: column; gap: 8px; font-size: 12px; padding: 10px 12px 14px; box-sizing: border-box; }
 .ocr-row { display: flex; align-items: center; gap: 8px; }
 .ocr-row-main { justify-content: space-between; }
+.ocr-row-main > input[type=checkbox] { flex: 0 0 auto; margin: 3px 6px 0 0; align-self: flex-start; }
+.agent-settings .ocr-row-main { display: flex; align-items: flex-start; gap: 0; justify-content: flex-start; }
 .ocr-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .ocr-status { margin: 0; color: var(--muted, #999); }
 .ocr-status[data-phase="error"] { color: var(--danger, #ff5c5c); }
@@ -1818,3 +1820,19 @@ input.mining-text { text-align: left; justify-content: flex-start; padding: 0 8p
 .agent-line-text { flex: 1; word-break: break-all; }
 .agent-log { max-height: 160px; overflow: auto; white-space: pre-wrap; }
 .ocr-text-layer.ocr-hooked .ocr-text-target[data-ocr-source="hook"] { text-decoration-color: rgba(120, 255, 180, 0.6); }
+.agent-game { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+.agent-badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+.agent-badge.ok { color: var(--accent); border-color: var(--accent); }
+.agent-select { width: 100%; box-sizing: border-box; }
+.agent-selected { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.agent-desc { white-space: pre-wrap; }
+.agent-import { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.agent-search { width: 100%; box-sizing: border-box; }
+.agent-catalog { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.agent-catalog li { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'title btn' 'meta btn'; align-items: center; column-gap: 8px; font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.agent-cat-title { grid-area: title; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-catalog li > .ocr-muted { grid-area: meta; font-size: 11px; }
+.agent-catalog li .btn { grid-area: btn; }
+.agent-import .agent-feed-head .btn { margin-left: auto; }
+.agent-details summary { cursor: pointer; font-weight: 600; }
+.agent-details > label { margin-top: 6px; }

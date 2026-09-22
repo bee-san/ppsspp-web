@@ -406,6 +406,14 @@ const ReadingBridge = (() => {
     emit({ type: "game-changed", gameId: id });
     bumpScene("game-changed");
   };
+  // The game image as a File/Blob (user pick, OPFS library, runtime load). Consumers parse
+  // PARAM.SFO out of it for the disc ID / title (text-hook script auto-selection) — the
+  // emulator itself exposes neither to JS.
+  let gameFile = null;
+  const setGameFile = (file) => {
+    gameFile = file || null;
+    emit({ type: "game-file", file: gameFile, name: gameFile ? gameFile.name : null });
+  };
   const anyClaim = () => claims.size > 0;
   // Installed before SDL registers its own window listeners (which happens when
   // the emulator starts), so stopImmediatePropagation() reliably precedes them.
@@ -524,7 +532,9 @@ const ReadingBridge = (() => {
     requestFullscreen: () => requestBrowserFullscreen(),
     exitFullscreen: () => exitBrowserFullscreen(),
     // internal hooks used by this runtime
-    _setPhase: setPhase, _bumpScene: bumpScene, _setGame: setGame, _emitAudio: emitAudio,
+    /** v3: the current game image (File/Blob) or null; see also the "game-file" lifecycle event. */
+    getGameFile: () => gameFile,
+    _setPhase: setPhase, _bumpScene: bumpScene, _setGame: setGame, _emitAudio: emitAudio, _setGameFile: setGameFile,
     _started() { state.gameSessionId++; setPhase("loading"); emit({ type: "scene-epoch", sceneEpoch: ++state.sceneEpoch, reason: "runtime-start" }); },
   });
   window.PpssppReadingBridge = api;
@@ -3260,6 +3270,7 @@ async function loadGameAtRuntime(file) {
     try { FS.mkdirTree(VIRTUAL_GAME_DIR); } catch(e) {}
     FS.writeFile(path, bytes);
     await opfsPutGame(file.name, bytes);
+    ReadingBridge._setGameFile(file);
     ReadingBridge._bumpScene("runtime-game-mounted");
     refreshEmulatorGameBrowser("mounted " + safe);
     log("Game file ready at " + path + " and saved to OPFS. Open it from PPSSPP\u2019s game browser (Home \u2192 Games).", "ok");
@@ -4478,6 +4489,7 @@ async function preloadGame(FS) {
   showLoading("Fast loading game: " + sourceName);
 
   if (selectedGame) {
+    ReadingBridge._setGameFile(selectedGame);
     const fastPath = mountGameFileFast(FS, selectedGame, safe, "selected file");
     if (fastPath) {
       persistSelectedGameInBackground(selectedGame);
@@ -4485,6 +4497,7 @@ async function preloadGame(FS) {
     }
   } else if (selectedStoredGame) {
     const storedFile = await opfsGetGameFile(selectedStoredGame);
+    ReadingBridge._setGameFile(storedFile);
     const fastPath = mountGameFileFast(FS, storedFile, safe, "OPFS");
     if (fastPath) return fastPath;
   }

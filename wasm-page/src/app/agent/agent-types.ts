@@ -15,10 +15,14 @@ export interface AgentSettings {
   schemaVersion: 1;
   /** Run the in-browser script when a game is running. */
   enabled: boolean;
-  /** Agent userscript source (JavaScript). */
+  /** Agent userscript source (JavaScript) of the selected script (copy kept for the worker). */
   script: string;
   /** Display name (from the `@name` header when present). */
   scriptName: string;
+  /** Library id of the selected script ('' = none). */
+  selectedScriptId: string;
+  /** Pick the library script whose disc ID matches the running game automatically. */
+  autoSelect: boolean;
   /**
    * How hooked text meets OCR: `replace` — OCR line text is swapped for the matching hooked
    * line (boxes stay OCR's); `supplement` — only lines OCR got wrong (low similarity) are
@@ -44,6 +48,8 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   enabled: false,
   script: '',
   scriptName: '',
+  selectedScriptId: '',
+  autoSelect: true,
   ocrMode: 'replace',
   matchThreshold: 0.5,
   websocketUrl: '',
@@ -75,7 +81,8 @@ export function saveAgentSettings(storage: StorageLike, s: AgentSettings): void 
 export function sanitizeAgentSettings(s: AgentSettings): AgentSettings {
   const d = DEFAULT_AGENT_SETTINGS;
   const out: AgentSettings = { ...s, schemaVersion: 1 };
-  for (const k of ['enabled', 'copyToClipboard', 'clipFromLine', 'showLog'] as const) out[k] = typeof out[k] === 'boolean' ? out[k] : d[k];
+  for (const k of ['enabled', 'copyToClipboard', 'clipFromLine', 'showLog', 'autoSelect'] as const) out[k] = typeof out[k] === 'boolean' ? out[k] : d[k];
+  out.selectedScriptId = typeof out.selectedScriptId === 'string' ? out.selectedScriptId.slice(0, 200) : '';
   out.script = typeof out.script === 'string' ? out.script.slice(0, 512 * 1024) : '';
   out.scriptName = typeof out.scriptName === 'string' ? out.scriptName.slice(0, 120) : '';
   if (!['replace', 'supplement', 'off'].includes(out.ocrMode)) out.ocrMode = d.ocrMode;
@@ -99,6 +106,8 @@ export interface HookedLine {
 }
 
 export type AgentPhase = 'off' | 'waiting' | 'no-memory' | 'locating' | 'running' | 'error';
+
+export interface GameIdentity { fileName: string | null; discId: string | null; title: string | null }
 
 export interface AgentDiagnostics {
   phase: AgentPhase;
