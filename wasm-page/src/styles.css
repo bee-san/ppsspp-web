@@ -1851,7 +1851,12 @@ body.browser-fullscreen #fsToolbar { display: flex; }
 /* Idle: fade but stay tappable (a touch has no hover to reveal it first). */
 body.browser-fullscreen.fs-cursor-hidden #fsToolbar { opacity: .18; }
 body.browser-fullscreen.fs-cursor-hidden #fsToolbar:hover, body.browser-fullscreen.fs-cursor-hidden #fsToolbar:active { opacity: 1; }
-@media (pointer: coarse) { body.browser-fullscreen.fs-cursor-hidden #fsToolbar { opacity: .35; } }
+@media (pointer: coarse) {
+  body.browser-fullscreen.fs-cursor-hidden #fsToolbar { opacity: .35; }
+  /* PPSSPP's own touch controls occupy the top-right (pause, R trigger) and bottom corners; the
+     left middle is free (and on a phone in landscape it is letterbox). Stack vertically there. */
+  #fsToolbar { top: 50%; right: auto; left: 6px; transform: translateY(-50%); flex-direction: column; }
+}
 /* .body-main is the fullscreen element (stage + aside): size it to the screen */
 .body-main:fullscreen, .body-main:-webkit-full-screen { width: 100vw !important; height: 100vh !important; background: #000; }
 .body-main:fullscreen .stage, .body-main:-webkit-full-screen .stage { padding: 0 !important; background: #000 !important; display: flex !important; align-items: center !important; justify-content: center !important; min-height: 0; }
