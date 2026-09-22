@@ -1525,6 +1525,10 @@ body.drive-connected .drive-sync-btn { display: inline-flex !important; }
    Extensions scan it (caret hit-testing ignores color); the player sees only the game. Selection
    highlights from the extension still show, which is the same as on any web page. */
 .ocr-text-layer.ocr-invisible-text .ocr-text-target { color: transparent !important; text-shadow: none; }
+/* Touch devices have no hover and no dictionary extension: the invisible text must not swallow
+   taps meant for PPSSPP's on-screen controls. Hit-testing for the plain-text card uses pointer
+   coordinates (a tap is a pointer sample), so the glyphs need no pointer events there. */
+@media (pointer: coarse) and (hover: none) { .ocr-text-layer .ocr-text-target { pointer-events: none; } }
 .ocr-text-layer.ocr-invisible-text .ocr-text-target::selection { background: rgba(120, 180, 255, 0.35); color: transparent; }
 .ocr-text-layer.ocr-invisible-text .ocr-active-glyph { visibility: hidden; } /* keeps geometry for diagnostics/tests */
 .ocr-text-layer.ocr-invisible-text.ocr-stale .ocr-text-target { text-decoration: none; }

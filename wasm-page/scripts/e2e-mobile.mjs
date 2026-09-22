@@ -87,6 +87,24 @@ for (const [label, opts] of [["320x640", { viewport: { width: 320, height: 640 }
   await ctx.close();
 }
 
+// ── touch: OCR text must not swallow taps meant for the emulator's on-screen controls ──
+{
+  const ctx = await browser.newContext({ ...devices["Pixel 5"], hasTouch: true }); const page = await ctx.newPage();
+  await boot(page);
+  await page.evaluate(() => { window.__canvasTaps = 0; document.getElementById("canvas").addEventListener("pointerdown", () => window.__canvasTaps++, true); });
+  await page.click("#ocrToggleBtn");
+  await page.waitForFunction(() => document.querySelectorAll(".ocr-text-target").length > 10, null, { timeout: 240_000, polling: 500 });
+  const g = await page.evaluate(() => { const el = document.querySelector(".ocr-text-target"); const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, under: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.id }; });
+  await page.touchscreen.tap(g.x, g.y); await page.waitForTimeout(300);
+  const taps = await page.evaluate(() => window.__canvasTaps);
+  check(g.under === "canvas" && taps >= 1, `touch: a tap on OCR'd text reaches the emulator canvas (element under glyph: ${g.under}, canvas pointerdown ×${taps})`);
+  const hint = await page.locator("#tabOcr").innerText().catch(() => "");
+  await page.click("#panelToggleBtn"); await page.waitForTimeout(300); await selectTab(page, "ocr"); await page.waitForTimeout(300);
+  check(/Plain-text card/.test(await page.locator("#tabOcr").innerText()), "touch: OCR tab explains the plain-text card for phones");
+  void hint;
+  await ctx.close();
+}
+
 // ── desktop/tablet width sweep: the header must never clip or overlap controls ──
 {
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 768 } }); const page = await ctx.newPage();

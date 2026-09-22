@@ -86,6 +86,9 @@
         </select>
       </label>
 
+      @if (isTouch) {
+        <p class="ocr-muted">On a phone or tablet there is no hover and no browser dictionary extension: pick <em>Plain-text card following the pointer</em> above and tap the game text to read it (the card has a copy button). Taps pass through to the game's on-screen controls.</p>
+      }
       <p class="ocr-muted ocr-mode">{{ ocr.modeDescription() }} <a href="#" (click)="$event.preventDefault(); openKeys()">All keys &amp; shortcuts</a></p>
 
       <details>

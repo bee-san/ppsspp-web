@@ -16,6 +16,7 @@ import type { OcrSettings } from './ocr-types';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OcrSettingsComponent {
+  readonly isTouch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse) and (hover: none)').matches;
   readonly ocr = inject(OcrSessionService);
   readonly s = this.ocr.settings;
   readonly diag = this.ocr.diagnostics;
