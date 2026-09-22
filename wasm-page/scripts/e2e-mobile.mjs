@@ -87,6 +87,21 @@ for (const [label, opts] of [["320x640", { viewport: { width: 320, height: 640 }
   await ctx.close();
 }
 
+// ── desktop/tablet width sweep: the header must never clip or overlap controls ──
+{
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 768 } }); const page = await ctx.newPage();
+  await boot(page);
+  const bad = [];
+  for (const w of [1400, 1180, 1100, 1024, 980, 900, 860, 820, 768, 701, 700, 600]) {
+    await page.setViewportSize({ width: w, height: 768 }); await page.waitForTimeout(300);
+    const a = await headerAudit(page);
+    const textClipped = await page.evaluate(() => Array.from(document.querySelectorAll("header button, header label, header select, header a, header .badge")).filter((e) => e.getBoundingClientRect().width > 0 && e.scrollWidth > e.clientWidth + 2 && getComputedStyle(e).textOverflow !== "ellipsis").map((e) => e.id || e.className.split(" ")[0]));
+    if (a.clipped.length || a.overlapping.length || a.docOverflowX || textClipped.length) bad.push({ w, ...a, textClipped });
+  }
+  check(bad.length === 0, `header has no clipped/overlapping controls from 1400 down to 600 px${bad.length ? " — " + JSON.stringify(bad.slice(0, 3)) : ""}`);
+  await ctx.close();
+}
+
 // ── landscape phone: emulator auto-fullscreen must not lock the user out ──
 {
   const ctx = await browser.newContext({ ...devices["Pixel 5 landscape"], hasTouch: true }); const page = await ctx.newPage();
