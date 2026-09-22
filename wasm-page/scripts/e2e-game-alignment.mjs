@@ -296,6 +296,36 @@ async function measure(page, label, chars = CHARS) {
   await page.setViewportSize({ width: 1600, height: 900 });
   await measure(page, "back to 1600x900");
 
+  // Resize storm: 12 viewport sizes in 1.8 s (a user dragging the window edge). The layer must
+  // end up aligned to the final size — and settle quickly (measured: time from the last resize
+  // until the DOM boxes stop moving and match the canvas geometry).
+  {
+    const sizes = [[1500, 860], [1380, 820], [1250, 760], [1100, 700], [980, 720], [1200, 640], [1400, 900], [900, 800], [1300, 700], [1550, 880], [1000, 600], [1600, 900]];
+    for (const [w, h] of sizes) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(150); }
+    const tEnd = Date.now();
+    // settle: text box left/top stable across two 100 ms polls
+    let prev = null, settledAt = null;
+    for (let i = 0; i < 60; i++) {
+      await page.waitForTimeout(100);
+      const sig = await page.evaluate(() => Array.from(document.querySelectorAll(".ocr-text-target")).slice(0, 20).map((e) => { const r = e.getBoundingClientRect(); return `${r.left.toFixed(0)},${r.top.toFixed(0)}`; }).join("|"));
+      if (sig && sig === prev) { settledAt = Date.now() - 100; break; }
+      prev = sig;
+    }
+    const settleMs = settledAt ? settledAt - tEnd : null;
+    check(settleMs !== null && settleMs < 1500, `resize storm: layer settled ${settleMs} ms after the last resize (< 1500 ms)`);
+    await measure(page, "after a 12-step resize storm");
+  }
+
+  // Panel toggled while a scan is in flight: the capture was taken at the old geometry, the
+  // layout is published into the new one — mapping must use the geometry of publish time.
+  {
+    await page.mouse.move(400, 400); await page.mouse.move(420, 410); // trigger a movement scan
+    await page.waitForTimeout(120); // scans take ~1–2 s here: the toggle lands mid-inference
+    await page.click("#panelToggleBtn");
+    await measure(page, "panel toggled during an in-flight scan");
+    await page.click("#panelToggleBtn");
+  }
+
   // Layout shift without a resize: the canvas moves but keeps its size (a banner above the
   // stage, a horizontal shift when the canvas is height-limited …). The overlay must follow.
   await page.evaluate(() => { const s = document.querySelector(".stage"); s.style.paddingLeft = "140px"; s.style.paddingTop = "40px"; s.style.justifyContent = "flex-start"; });
@@ -370,6 +400,14 @@ async function measure(page, label, chars = CHARS) {
   await measure(page, "DPR2 1400x800 panel closed");
   await page.click("#panelToggleBtn");
   await measure(page, "DPR2 1400x800 panel open");
+  // Orientation change on a phone-like size: landscape → portrait → landscape.
+  await page.click("#panelToggleBtn");
+  await page.setViewportSize({ width: 915, height: 412 });
+  await measure(page, "DPR2 phone landscape 915x412");
+  await page.setViewportSize({ width: 412, height: 915 });
+  await measure(page, "DPR2 phone portrait 412x915 (after orientation change)");
+  await page.setViewportSize({ width: 915, height: 412 });
+  await measure(page, "DPR2 back to landscape");
   await context.close();
 }
 
