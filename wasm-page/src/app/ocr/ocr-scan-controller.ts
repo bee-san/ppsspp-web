@@ -77,6 +77,8 @@ export interface ControllerDiagnostics {
   /** Stale checks that found changed pixels under visible text. */
   staleDetected: number;
   staleRescans: number;
+  /** Stale checks that saw a still-changing picture (rescan waits for it to settle). */
+  staleSettling: number;
   scansFailed: number;
   hitTests: number;
   captureFailures: number;
@@ -130,6 +132,8 @@ export class OcrScanController {
   private generation = 0;
   private pointer: PointerSample | null = null;
   private pointerMovedSinceLastScan = true;
+  /** rescan policy: pixels of the last stale check that differed from the published frame. */
+  private settleBytes: Uint8Array | null = null;
   /** Time of the last "unchanged image" decision; movement captures back off UNCHANGED_BACKOFF_MS after it. */
   private lastUnchangedAt = -Infinity;
   private hotkeyDown = false;
@@ -158,6 +162,7 @@ export class OcrScanController {
     scansStale: 0,
     staleDetected: 0,
     staleRescans: 0,
+    staleSettling: 0,
     scansFailed: 0,
     hitTests: 0,
     captureFailures: 0,
@@ -294,6 +299,7 @@ export class OcrScanController {
   invalidate(reason: string): void {
     this.generation++;
     this.lastCompared = null;
+    this.settleBytes = null;
     this.pendingIntent = null;
     this.forceNext = false;
     this.clearTimer('throttle');
@@ -646,23 +652,35 @@ export class OcrScanController {
         this.lastCompared.width === captured.frame.width &&
         this.lastCompared.height === captured.frame.height &&
         this.framesEqual(this.lastCompared.bytes, bytes);
+      if (same) this.settleBytes = null; // reverted to the published picture: nothing to re-read
       if (!same) {
         this.pointerMovedSinceLastScan = true; // the next movement scan re-infers
-        this.lastCompared = null; // and must not be skipped as "unchanged"
         this.diag.staleDetected++;
         if (this.settings.stalePolicy === 'rescan') {
-          // Keep the old text readable but flagged, and re-infer as soon as the throttle
-          // allows — the screen changed on its own (dialogue advanced, menu opened), which
-          // in an emulator happens without any pointer movement.
+          // Keep the old text readable but flagged. The screen changed on its own (dialogue
+          // advanced, menu opened) — in an emulator this happens without pointer movement.
+          // Re-infer only once the picture has SETTLED: while a typewriter effect or an
+          // animation keeps changing pixels every check, inferring would burn CPU on frames
+          // nobody can read yet. "Settled" = the same pixels seen by two consecutive checks.
           if (!this.published.stale) {
             this.published = { ...this.published, stale: true };
             this.ports.onLayout(this.published);
           }
-          this.diag.staleRescans++;
-          this.requestScan('stale');
+          const settled = !!this.settleBytes && this.settleBytes.length === bytes.length && this.framesEqual(this.settleBytes, bytes);
+          if (settled) {
+            this.settleBytes = null;
+            this.lastCompared = null; // must not be skipped as "unchanged"
+            this.diag.staleRescans++;
+            this.requestScan('stale');
+          } else {
+            this.settleBytes = bytes;
+            this.diag.staleSettling++;
+            this.rescheduleStaleCheck();
+          }
           this.emitDiag();
           return;
         }
+        this.lastCompared = null; // and must not be skipped as "unchanged"
         if (this.settings.stalePolicy === 'remove') {
           // Retire spatial targets; next movement/hotkey may re-infer.
           this.published = null;
