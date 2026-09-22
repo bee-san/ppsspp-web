@@ -467,6 +467,16 @@ body.panel-open aside { display: grid; }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 .tab-panel { display: none; min-height: 0; overflow: hidden; flex: 1; }
 .tab-panel.active { display: flex; flex-direction: column; }
+/* Angular component hosts inside a tab: fill the tab and scroll their own content
+   (custom elements are inline by default, so long tabs — Keys, OCR, Text hook — were clipped). */
+.tab-panel > app-ocr-settings,
+.tab-panel > app-mining-settings,
+.tab-panel > app-agent-settings,
+.tab-panel > app-keys-help {
+  display: block; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: var(--border2) transparent;
+}
 
 #logPanel { position: relative; flex: 1; overflow: hidden; min-height: 0; }
 #log {
@@ -1575,7 +1585,7 @@ body.drive-connected .drive-sync-btn { display: inline-flex !important; }
 }
 
 /* Settings panel */
-.ocr-settings { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+.ocr-settings { display: flex; flex-direction: column; gap: 8px; font-size: 12px; padding: 10px 12px 14px; box-sizing: border-box; }
 .ocr-row { display: flex; align-items: center; gap: 8px; }
 .ocr-row-main { justify-content: space-between; }
 .ocr-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
