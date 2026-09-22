@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LayoutSnapshot, TextHit } from 'meikiocr-web/meikipop';
 import type { OcrSnapshot } from 'meikiocr-web';
-import { OcrScanController, UNCHANGED_BACKOFF_MS, type ControllerPorts, type Scheduler } from './ocr-scan-controller';
+import { OcrScanController, probeChanged, UNCHANGED_BACKOFF_MS, type ControllerPorts, type Scheduler } from './ocr-scan-controller';
 import { DEFAULT_OCR_SETTINGS, FULL_REGION, type CapturedGameFrame, type OcrSettings, type PublishedLayout } from './ocr-types';
 
 /** Deterministic virtual clock + timers. */
@@ -628,5 +628,18 @@ describe('OcrScanController (MeikiPop scheduling)', () => {
     h.ctrl.hotkeyDownEdge(); // repeat
     await h.sched.advance(100);
     expect(h.ocrCalls).toBe(2);
+  });
+
+  it('probeChanged: a blinking cursor (few pixels) is not a change; a new text line is', () => {
+    const w = 160, h = 90;
+    const a = { width: w, height: h, rgba: new Uint8Array(w * h * 4).fill(20) };
+    const b = { width: w, height: h, rgba: a.rgba.slice() };
+    // 40 pixels (0.28 %) flip white: blinking "▼" cursor
+    for (let i = 0; i < 40; i++) { const o = (i * 4) + (h - 5) * w * 4; b.rgba[o] = b.rgba[o + 1] = b.rgba[o + 2] = 255; }
+    expect(probeChanged(a, b)).toBe(false);
+    // a text line: 6 rows × 120 px = 5 %
+    for (let y = 40; y < 46; y++) for (let x = 20; x < 140; x++) { const o = (y * w + x) * 4; b.rgba[o] = b.rgba[o + 1] = b.rgba[o + 2] = 255; }
+    expect(probeChanged(a, b)).toBe(true);
+    expect(probeChanged(a, { width: 80, height: 45, rgba: new Uint8Array(80 * 45 * 4) })).toBe(true);
   });
 });

@@ -115,7 +115,7 @@
 scans requested={{ c.scansRequested }} submitted={{ c.scansSubmitted }} completed={{ c.scansCompleted }} failed={{ c.scansFailed }} stale={{ c.scansStale }}
 skipped unchanged={{ c.scansSkippedUnchanged }} throttled={{ c.scansSkippedThrottled }} no-motion={{ c.scansSkippedNoMotion }}
 active={{ c.activeInference }} pending={{ c.pendingIntent }} hitTests={{ c.hitTests }} lastScan={{ c.lastScanMs | number:'1.0-0' }}ms lastCapture={{ c.lastCaptureMs | number:'1.0-1' }}ms
-captures={{ diag().frames?.captures }} blank={{ diag().frames?.blankCaptures }} blankRetries={{ diag().frames?.blankRetries }} image={{ diag().frames?.lastImageSize }} geometryVersion={{ diag().frames?.geometryVersion }}
+captures={{ diag().frames?.captures }} probes={{ diag().frames?.probes }} staleDetected={{ c.staleDetected }} settling={{ c.staleSettling }} rescans={{ c.staleRescans }} blank={{ diag().frames?.blankCaptures }} blankRetries={{ diag().frames?.blankRetries }} image={{ diag().frames?.lastImageSize }} geometryVersion={{ diag().frames?.geometryVersion }}
 input claims={{ diag().inputClaims.join(',') || 'none' }} fullscreen={{ diag().fullscreen }}
 warnings={{ diag().lastOcrWarnings.join(' | ') || 'none' }}
 lastError={{ diag().lastError || 'none' }}</pre>

@@ -18,8 +18,7 @@
  *
  * This class has no DOM dependency. Timers and clock are injected.
  */
-import type {
-  CaptureMeta,
+import type { FrameProbe,   CaptureMeta,
   CapturedGameFrame,
   LayoutSnapshot,
   NormRegion,
@@ -48,6 +47,8 @@ export type ScanKind = 'initial' | 'movement' | 'periodic' | 'manual' | 'refresh
 
 export interface ControllerPorts {
   capture(region: NormRegion): Promise<CapturedGameFrame | null>;
+  /** Optional cheap thumbnail of the region (see OcrFrameSource.probe); stale checks use it when available. */
+  probe?(region: NormRegion): Promise<FrameProbe | null>;
   ocr(frame: CapturedGameFrame): Promise<OcrSnapshot>;
   buildLayout(snapshot: OcrSnapshot): LayoutSnapshot;
   /**
@@ -134,6 +135,8 @@ export class OcrScanController {
   private pointerMovedSinceLastScan = true;
   /** rescan policy: pixels of the last stale check that differed from the published frame. */
   private settleBytes: Uint8Array | null = null;
+  /** Thumbnail of the frame the published layout was recognized from (probe-based stale checks). */
+  private publishedProbe: FrameProbe | null = null;
   /** Time of the last "unchanged image" decision; movement captures back off UNCHANGED_BACKOFF_MS after it. */
   private lastUnchangedAt = -Infinity;
   private hotkeyDown = false;
@@ -300,6 +303,7 @@ export class OcrScanController {
     this.generation++;
     this.lastCompared = null;
     this.settleBytes = null;
+    this.publishedProbe = null;
     this.pendingIntent = null;
     this.forceNext = false;
     this.clearTimer('throttle');
@@ -568,6 +572,7 @@ export class OcrScanController {
       this.consecutiveFailures = 0;
       // Only successful inference marks the crop as "seen" (failures stay retryable).
       this.lastCompared = { key, bytes: kept, width: captured.frame.width, height: captured.frame.height, snapshotGeneration: generation };
+      this.publishedProbe = captured.probe ?? null;
       const post = this.ports.postProcess?.(snapshot) ?? { snapshot, hookedLineIds: [] };
       const layout = this.ports.buildLayout(post.snapshot);
       this.published = { layout, snapshot: post.snapshot, rawSnapshot: snapshot, hookedLineIds: post.hookedLineIds, meta: captured.meta, generation, publishedAtMs: this.sched.now() };
@@ -639,19 +644,26 @@ export class OcrScanController {
       return;
     }
     const generation = this.generation;
+    // Cheap path: compare a thumbnail with the published frame's thumbnail (tolerant: a blinking
+    // "next" cursor or a small animated icon is not a change worth re-reading). Full path when
+    // the port has no probe support.
+    const useProbe = !!this.ports.probe && !!this.publishedProbe;
     let captured: CapturedGameFrame | null = null;
+    let probe: FrameProbe | null = null;
     try {
-      captured = await this.ports.capture(this.region);
+      if (useProbe) probe = await this.ports.probe!(this.region);
+      else captured = await this.ports.capture(this.region);
     } catch (e) {
       this.ports.onError?.(e, 'stale-check');
     }
     if (generation !== this.generation || !this.published || !this.lastCompared) return;
-    if (captured) {
-      const bytes = new Uint8Array(captured.frame.rgba);
-      const same =
-        this.lastCompared.width === captured.frame.width &&
-        this.lastCompared.height === captured.frame.height &&
-        this.framesEqual(this.lastCompared.bytes, bytes);
+    if (useProbe ? probe : captured) {
+      const bytes = useProbe ? probe!.rgba : new Uint8Array(captured!.frame.rgba);
+      const same = useProbe
+        ? !probeChanged(this.publishedProbe!, probe!)
+        : this.lastCompared.width === captured!.frame.width &&
+          this.lastCompared.height === captured!.frame.height &&
+          this.framesEqual(this.lastCompared.bytes, bytes);
       if (same) this.settleBytes = null; // reverted to the published picture: nothing to re-read
       if (!same) {
         this.pointerMovedSinceLastScan = true; // the next movement scan re-infers
@@ -666,7 +678,7 @@ export class OcrScanController {
             this.published = { ...this.published, stale: true };
             this.ports.onLayout(this.published);
           }
-          const settled = !!this.settleBytes && this.settleBytes.length === bytes.length && this.framesEqual(this.settleBytes, bytes);
+          const settled = !!this.settleBytes && this.settleBytes.length === bytes.length && (useProbe ? !probeChanged({ width: probe!.width, height: probe!.height, rgba: this.settleBytes }, probe!) : this.framesEqual(this.settleBytes, bytes));
           if (settled) {
             this.settleBytes = null;
             this.lastCompared = null; // must not be skipped as "unchanged"
@@ -782,4 +794,23 @@ function sameHit(a: TextHit | null, b: TextHit | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
   return a.paragraphId === b.paragraphId && a.glyphId === b.glyphId && a.utf16Offset === b.utf16Offset && a.fullText === b.fullText;
+}
+
+/**
+ * Has the picture changed enough to matter? Counts thumbnail pixels whose colour moved by more
+ * than a small amount; below 0.6 % of the pixels (a blinking dialogue cursor, a small animated
+ * icon) it is not a change — otherwise the layer would flag/re-read forever on such screens.
+ */
+export function probeChanged(a: FrameProbe, b: FrameProbe, opts: { minFraction?: number; channelDelta?: number } = {}): boolean {
+  if (a.width !== b.width || a.height !== b.height || a.rgba.length !== b.rgba.length) return true;
+  const delta = opts.channelDelta ?? 24;
+  const n = a.rgba.length >>> 2;
+  const limit = Math.max(1, Math.floor(n * (opts.minFraction ?? 0.006)));
+  let changed = 0;
+  for (let i = 0; i < a.rgba.length; i += 4) {
+    if (Math.abs(a.rgba[i] - b.rgba[i]) > delta || Math.abs(a.rgba[i + 1] - b.rgba[i + 1]) > delta || Math.abs(a.rgba[i + 2] - b.rgba[i + 2]) > delta) {
+      if (++changed >= limit) return true;
+    }
+  }
+  return false;
 }
